@@ -34,8 +34,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--tests-root",
-        default="ci/typefuzz-seeds",
-        help="Root directory for tests (default: ci/typefuzz-seeds)",
+        default="test/regression",
+        help="Root directory for tests (default: test/regression)",
     )
     parser.add_argument(
         "--time-remaining",

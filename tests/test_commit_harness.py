@@ -31,10 +31,12 @@ class CommitHarnessTests(unittest.TestCase):
     def test_discover_opensmt_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp) / "opensmt"
-            seeds_root = repo_root / "ci" / "typefuzz-seeds"
+            seeds_root = repo_root / "test" / "regression"
             (seeds_root / "nested").mkdir(parents=True)
             (seeds_root / "a.smt2").write_text("(check-sat)\n", encoding="utf-8")
             (seeds_root / "nested" / "b.smt").write_text("(check-sat)\n", encoding="utf-8")
+            (seeds_root / "splitting" / "patches").mkdir(parents=True)
+            (seeds_root / "splitting" / "patches" / "ignored.smt2").write_text("(check-sat)\n", encoding="utf-8")
             (seeds_root / "ignore.txt").write_text("not a seed\n", encoding="utf-8")
 
             self.assertEqual(
@@ -49,7 +51,7 @@ class CommitHarnessTests(unittest.TestCase):
             self.addCleanup(os.chdir, old_cwd)
             os.chdir(workdir)
 
-            tests_root = workdir / "ci" / "typefuzz-seeds"
+            tests_root = workdir / "test" / "regression"
             tests_root.mkdir(parents=True)
             (tests_root / "seed.smt2").write_text("(check-sat)\n", encoding="utf-8")
 
@@ -108,7 +110,7 @@ class CommitHarnessTests(unittest.TestCase):
                 "--tests-json",
                 tests_json,
                 "--tests-root",
-                "ci/typefuzz-seeds",
+                "test/regression",
                 "--workers",
                 "1",
                 "--iterations",

@@ -57,8 +57,8 @@ def discover_cvc5_tests(build_dir: str) -> List[str]:
 
 
 def discover_opensmt_tests(opensmt_dir: str) -> List[str]:
-    """Discover OpenSMT seed tests from the local typefuzz corpus."""
-    seed_root = Path(opensmt_dir) / "ci" / "typefuzz-seeds"
+    """Discover OpenSMT regression tests from the local corpus."""
+    seed_root = Path(opensmt_dir) / "test" / "regression"
     if not seed_root.exists():
         return []
 
@@ -67,6 +67,8 @@ def discover_opensmt_tests(opensmt_dir: str) -> List[str]:
         if not test_file.is_file():
             continue
         if test_file.suffix.lower() not in {".smt", ".smt2"}:
+            continue
+        if "splitting/patches" in test_file.as_posix():
             continue
         tests.append(test_file.relative_to(seed_root).as_posix())
     return tests
