@@ -89,13 +89,8 @@ jobs:
           echo "commit_hash=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "CVC5 commit hash: $(git rev-parse HEAD)"
 
-      - name: Configure CVC5 build
-        working-directory: cvc5
-        run: ./configure.sh production --auto-download
-
       - name: Build CVC5 static binary
-        working-directory: cvc5
-        run: ./scripts/cvc5/build.sh --static
+        run: bash "${{ github.workspace }}/scripts/cvc5/build.sh" --static
 
       - name: Clone Z3 repository
         run: |
@@ -110,9 +105,8 @@ jobs:
         run: git fetch --all --tags
 
       - name: Build Z3 static binary
-        working-directory: z3
         run: |
-          ./scripts/z3/build.sh --static
+          bash "${{ github.workspace }}/scripts/z3/build.sh" --static
           echo "${{ github.workspace }}/z3/build" >> "$GITHUB_PATH"
 
       - name: Generate local test set

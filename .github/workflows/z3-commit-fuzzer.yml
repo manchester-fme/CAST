@@ -98,8 +98,7 @@ jobs:
           fi
 
       - name: Build Z3 static binary
-        working-directory: z3
-        run: ./scripts/z3/build.sh --static
+        run: bash "${{ github.workspace }}/scripts/z3/build.sh" --static
 
       - name: Install CVC5 oracle
         env:
