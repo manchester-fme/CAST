@@ -56,6 +56,22 @@ def discover_cvc5_tests(build_dir: str) -> List[str]:
     return [name for _, name in mapper.get_ctest_tests()]
 
 
+def discover_opensmt_tests(opensmt_dir: str) -> List[str]:
+    """Discover OpenSMT seed tests from the local typefuzz corpus."""
+    seed_root = Path(opensmt_dir) / "ci" / "typefuzz-seeds"
+    if not seed_root.exists():
+        return []
+
+    tests: List[str] = []
+    for test_file in sorted(seed_root.rglob("*")):
+        if not test_file.is_file():
+            continue
+        if test_file.suffix.lower() not in {".smt", ".smt2"}:
+            continue
+        tests.append(test_file.relative_to(seed_root).as_posix())
+    return tests
+
+
 def maybe_limit_tests(tests: Sequence[str], limit_tests: int | None) -> List[str]:
     if limit_tests is None:
         return list(tests)
@@ -106,9 +122,10 @@ def build_jobs(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a local commit-fuzzer matrix")
-    parser.add_argument("solver", choices=["z3", "cvc5"], help="Solver name")
+    parser.add_argument("solver", choices=["z3", "cvc5", "opensmt"], help="Solver name")
     parser.add_argument("--z3test-dir", default="z3test", help="Path to the z3test repository")
     parser.add_argument("--build-dir", default="build", help="Path to the solver build directory")
+    parser.add_argument("--opensmt-dir", default="opensmt", help="Path to the OpenSMT repository")
     parser.add_argument("--limit-tests", type=int, default=None, help="Cap the discovered test count")
     parser.add_argument("--tests-per-job", type=int, default=None, help="Number of tests per job")
     parser.add_argument("--max-jobs", type=int, default=None, help="Maximum number of jobs")
@@ -117,8 +134,10 @@ def main() -> int:
 
     if args.solver == "z3":
         tests = discover_z3_tests(args.z3test_dir)
-    else:
+    elif args.solver == "cvc5":
         tests = discover_cvc5_tests(args.build_dir)
+    else:
+        tests = discover_opensmt_tests(args.opensmt_dir)
 
     tests = maybe_limit_tests(tests, args.limit_tests)
     jobs, tests_per_job = build_jobs(tests, args.tests_per_job, args.max_jobs, args.solver)

@@ -15,7 +15,11 @@ sudo apt-get install -y \
   bison
 
 echo "📥 Cloning OpenSMT repository..."
-git clone https://github.com/usi-verification-and-security/opensmt.git opensmt
+if [ -d "opensmt" ]; then
+  echo "⚠️  OpenSMT directory already exists, skipping clone"
+else
+  git clone https://github.com/usi-verification-and-security/OpenSMT.git opensmt
+fi
 
 echo "🔨 Building OpenSMT (release configuration)..."
 cd opensmt
