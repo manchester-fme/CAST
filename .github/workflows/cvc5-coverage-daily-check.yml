@@ -1,8 +1,6 @@
 name: CVC5 Coverage Daily Check
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:  # Allow manual triggering for testing
 
 jobs:

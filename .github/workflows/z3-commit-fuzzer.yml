@@ -19,7 +19,7 @@ on:
         type: number
         default: 5
   schedule:
-    - cron: '45 0,6,12,18 * * *'
+    - cron: '45 0,5,10,15,20 * * *'
 
 jobs:
   run-fuzzer:
