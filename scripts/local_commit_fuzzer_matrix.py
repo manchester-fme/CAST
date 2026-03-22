@@ -21,7 +21,33 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-OPENSMT_UNSUPPORTED_FAMILY_RE = re.compile(r"(^|/)QF_A[^/]*(?:/|$)", re.IGNORECASE)
+OPENSMT_UNSUPPORTED_LOGIC_MARKERS = ("BV", "FP", "NIA", "NRA", "PB")
+
+
+def _extract_opensmt_logic_name(relative_name: str) -> str:
+    """Return the first SMT-LIB logic-like path component, if present."""
+    for part in Path(relative_name).parts:
+        upper = part.upper()
+        if upper.startswith("QF_"):
+            return upper
+    return ""
+
+
+def is_opensmt_preferred_test(relative_name: str) -> bool:
+    """Return True for OpenSMT-supported tests we want to schedule first.
+
+    Keep the supported quantifier-free array/UF/linear-arithmetic families in
+    the main sample and only push obviously unsupported bitvector, floating
+    point, string, pseudo-boolean, or nonlinear families to the fallback set.
+    """
+    logic_name = _extract_opensmt_logic_name(relative_name)
+    if not logic_name:
+        return True
+
+    if logic_name.startswith("QF_S"):
+        return False
+
+    return not any(marker in logic_name for marker in OPENSMT_UNSUPPORTED_LOGIC_MARKERS)
 
 
 def _interleave_grouped_tests(grouped_tests: dict[str, list[str]]) -> List[str]:
@@ -100,9 +126,9 @@ def discover_opensmt_tests(opensmt_dir: str) -> List[str]:
 
         parts = Path(relative_name).parts
         family = "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
-        # Keep array-heavy families as a fallback so the limited CI sample
-        # doesn't get consumed entirely by tests that OpenSMT skips.
-        target_groups = fallback_groups if OPENSMT_UNSUPPORTED_FAMILY_RE.search(relative_name) else preferred_groups
+        # Keep obviously unsupported families in a fallback bucket so they do
+        # not crowd out the supported OpenSMT corpus when tests are limited.
+        target_groups = preferred_groups if is_opensmt_preferred_test(relative_name) else fallback_groups
         target_groups.setdefault(family, []).append(relative_name)
 
     ordered_tests = _interleave_grouped_tests(preferred_groups)
