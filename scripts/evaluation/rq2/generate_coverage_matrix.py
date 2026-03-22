@@ -75,8 +75,8 @@ def main():
         result = subprocess.run(
             ['python3', 'scripts/z3/coverage/generate_matrix.py',
              '--z3test-dir', 'z3test',
-             '--max-job-time', '300',
-             '--buffer', '60',
+             '--max-job-time', '60',
+             '--buffer', '10',
              '--output', 'matrix.json'],
             capture_output=True,
             text=True,
@@ -86,8 +86,8 @@ def main():
         result = subprocess.run(
             ['python3', 'scripts/cvc5/coverage/generate_matrix.py',
              '--build-dir', build_dir,
-             '--max-job-time', '300',
-             '--buffer', '60',
+             '--max-job-time', '60',
+             '--buffer', '10',
              '--output', 'matrix.json'],
             capture_output=True,
             text=True,
@@ -121,4 +121,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

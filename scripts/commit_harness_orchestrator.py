@@ -106,8 +106,8 @@ class CommitHarnessRunner:
         return None
 
     def _compute_time_remaining(self, job_start_time: float, stop_buffer_minutes: int) -> int:
-        github_timeout = 21600
-        minimum_remaining = 600
+        github_timeout = 3600
+        minimum_remaining = 300
 
         build_time = self.start_time - job_start_time
         stop_buffer_seconds = stop_buffer_minutes * 60

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Unified test counting utility for CVC5 and Z3 solvers.
-Reuses existing CoverageMapper logic to ensure consistency with coverage generation.
+Unified test counting utility for CVC5, Z3, and OpenSMT solvers.
+Reuses existing CoverageMapper logic where available to ensure consistency with coverage generation.
 """
 
 import argparse
@@ -110,9 +110,44 @@ def count_z3_tests(z3test_dir: Path) -> Dict:
     }
 
 
+def count_opensmt_tests(opensmt_dir: Path) -> Dict:
+    """
+    Count OpenSMT regression tests using the local OpenSMT corpus.
+
+    Args:
+        opensmt_dir: Path to OpenSMT repository
+
+    Returns:
+        Dictionary with test_count, commit_hash, and solver_version
+    """
+    from scripts.local_commit_fuzzer_matrix import discover_opensmt_tests
+
+    tests = discover_opensmt_tests(str(opensmt_dir))
+
+    # Get commit hash from OpenSMT repository
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=opensmt_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        commit_hash = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to get OpenSMT commit hash: {e}", file=sys.stderr)
+        commit_hash = "unknown"
+
+    return {
+        'test_count': len(tests),
+        'commit_hash': commit_hash,
+        'solver_version': 'main'
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Count tests for CVC5 or Z3 solver',
+        description='Count tests for CVC5, Z3, or OpenSMT solver',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -121,12 +156,15 @@ Examples:
 
   # Count Z3 tests
   python3 scripts/coverage/count_tests.py z3 --z3test-dir z3test --output test-count.json
+
+  # Count OpenSMT tests
+  python3 scripts/coverage/count_tests.py opensmt --opensmt-dir opensmt --output test-count.json
         """
     )
 
     parser.add_argument(
         'solver',
-        choices=['cvc5', 'z3'],
+        choices=['cvc5', 'z3', 'opensmt'],
         help='Solver to count tests for'
     )
 
@@ -140,6 +178,12 @@ Examples:
         '--z3test-dir',
         type=Path,
         help='Path to z3test repository (required for z3)'
+    )
+
+    parser.add_argument(
+        '--opensmt-dir',
+        type=Path,
+        help='Path to OpenSMT repository (required for opensmt)'
     )
 
     parser.add_argument(
@@ -161,14 +205,21 @@ Examples:
             parser.error('--z3test-dir is required for z3')
         if not args.z3test_dir.exists():
             parser.error(f'z3test directory does not exist: {args.z3test_dir}')
+    elif args.solver == 'opensmt':
+        if not args.opensmt_dir:
+            parser.error('--opensmt-dir is required for opensmt')
+        if not args.opensmt_dir.exists():
+            parser.error(f'opensmt directory does not exist: {args.opensmt_dir}')
 
     # Count tests
     print(f"Counting {args.solver.upper()} tests...", file=sys.stderr)
 
     if args.solver == 'cvc5':
         result = count_cvc5_tests(args.build_dir)
-    else:  # z3
+    elif args.solver == 'z3':
         result = count_z3_tests(args.z3test_dir)
+    else:
+        result = count_opensmt_tests(args.opensmt_dir)
 
     print(f"✅ Found {result['test_count']} tests at commit {result['commit_hash'][:8]}", file=sys.stderr)
 

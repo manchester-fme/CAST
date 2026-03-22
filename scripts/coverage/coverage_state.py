@@ -33,7 +33,7 @@ class CoverageStateManager:
 
         Args:
             bucket: S3 bucket name
-            solver: Solver name (cvc5 or z3)
+            solver: Solver name (cvc5, z3, or opensmt)
             region: AWS region
         """
         self.bucket = bucket
@@ -213,7 +213,7 @@ Environment variables:
 
     parser.add_argument(
         'solver',
-        choices=['cvc5', 'z3'],
+        choices=['cvc5', 'z3', 'opensmt'],
         help='Solver name'
     )
 

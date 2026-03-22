@@ -21,6 +21,30 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+OPENSMT_UNSUPPORTED_FAMILY_RE = re.compile(r"(^|/)QF_A[^/]*(?:/|$)", re.IGNORECASE)
+
+
+def _interleave_grouped_tests(grouped_tests: dict[str, list[str]]) -> List[str]:
+    """Round-robin tests across logic families so one family does not dominate."""
+    ordered: List[str] = []
+    families = sorted(grouped_tests)
+    positions = {family: 0 for family in families}
+
+    while True:
+        progressed = False
+        for family in families:
+            index = positions[family]
+            tests = grouped_tests[family]
+            if index < len(tests):
+                ordered.append(tests[index])
+                positions[family] = index + 1
+                progressed = True
+        if not progressed:
+            break
+
+    return ordered
+
+
 def check_has_unsupported_commands(test_file: Path) -> bool:
     """Return True if a Z3 SMT2 test uses commands unsupported by CVC5."""
     try:
@@ -62,16 +86,28 @@ def discover_opensmt_tests(opensmt_dir: str) -> List[str]:
     if not seed_root.exists():
         return []
 
-    tests: List[str] = []
+    preferred_groups: dict[str, list[str]] = {}
+    fallback_groups: dict[str, list[str]] = {}
+
     for test_file in sorted(seed_root.rglob("*")):
         if not test_file.is_file():
             continue
         if test_file.suffix.lower() not in {".smt", ".smt2"}:
             continue
-        if "splitting/patches" in test_file.as_posix():
+        relative_name = test_file.relative_to(seed_root).as_posix()
+        if "splitting/patches" in relative_name:
             continue
-        tests.append(test_file.relative_to(seed_root).as_posix())
-    return tests
+
+        parts = Path(relative_name).parts
+        family = "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
+        # Keep array-heavy families as a fallback so the limited CI sample
+        # doesn't get consumed entirely by tests that OpenSMT skips.
+        target_groups = fallback_groups if OPENSMT_UNSUPPORTED_FAMILY_RE.search(relative_name) else preferred_groups
+        target_groups.setdefault(family, []).append(relative_name)
+
+    ordered_tests = _interleave_grouped_tests(preferred_groups)
+    ordered_tests.extend(_interleave_grouped_tests(fallback_groups))
+    return ordered_tests
 
 
 def maybe_limit_tests(tests: Sequence[str], limit_tests: int | None) -> List[str]:

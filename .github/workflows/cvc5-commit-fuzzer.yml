@@ -4,9 +4,6 @@ env:
   LOCAL_TEST_LIMIT: 16
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
     inputs:
       cvc5_commit_hash:
@@ -20,6 +17,10 @@ on:
         default: 5
   schedule:
     - cron: '45 0,5,10,15,20 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   run-fuzzer:

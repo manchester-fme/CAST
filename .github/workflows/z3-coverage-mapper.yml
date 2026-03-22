@@ -77,8 +77,8 @@ jobs:
         run: |
           python3 scripts/z3/coverage/generate_matrix.py \
             --z3test-dir z3test \
-            --max-job-time 360 \
-            --buffer 60 \
+            --max-job-time 60 \
+            --buffer 10 \
             --output matrix.json
           
           MATRIX=$(jq -c '.matrix' matrix.json)

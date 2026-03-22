@@ -44,7 +44,7 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Builder job - check build queue')
-    parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
+    parser.add_argument('solver', choices=['z3', 'cvc5', 'opensmt'], help='Solver name')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     
     args = parser.parse_args()
@@ -61,4 +61,3 @@ if __name__ == '__main__':
         else:
             # No commit found is not an error - just exit successfully
             sys.exit(0)
-

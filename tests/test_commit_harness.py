@@ -44,6 +44,20 @@ class CommitHarnessTests(unittest.TestCase):
                 ["a.smt2", "nested/b.smt"],
             )
 
+    def test_discover_opensmt_tests_prioritizes_non_array_families(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "opensmt"
+            seeds_root = repo_root / "test" / "regression"
+            (seeds_root / "base" / "QF_ALIA").mkdir(parents=True)
+            (seeds_root / "base" / "QF_LIA").mkdir(parents=True)
+            (seeds_root / "base" / "QF_ALIA" / "array.smt2").write_text("(check-sat)\n", encoding="utf-8")
+            (seeds_root / "base" / "QF_LIA" / "arith.smt2").write_text("(check-sat)\n", encoding="utf-8")
+
+            self.assertEqual(
+                discover_opensmt_tests(str(repo_root))[:2],
+                ["base/QF_LIA/arith.smt2", "base/QF_ALIA/array.smt2"],
+            )
+
     def test_opensmt_commit_fuzzer_runs_to_completion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp)
