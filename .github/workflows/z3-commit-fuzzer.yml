@@ -42,17 +42,21 @@ jobs:
       - name: Install dependencies
         run: pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Get commit to fuzz and latest build
         id: set-outputs
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           set +e  # Don't exit on error - handle errors gracefully
           # If workflow_dispatch with commit hash provided, use that commit
@@ -218,12 +222,18 @@ jobs:
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "Z3 commit hash: $COMMIT_HASH"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -234,11 +244,11 @@ jobs:
           S3_KEY="solvers/z3/builds/v2/production/${LATEST_BUILD}.tar.gz"
           
           if aws s3api head-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" >/dev/null 2>&1; then
             echo "📥 Downloading production binary for latest build: $LATEST_BUILD (for headers and compile_commands.json)"
             aws s3 cp \
-              s3://${{ secrets.AWS_S3_BUCKET }}/$S3_KEY \
+              s3://$AWS_S3_BUCKET/$S3_KEY \
               artifacts/artifacts.tar.gz
             echo "artifacts_available=true" >> $GITHUB_OUTPUT
           else
@@ -273,12 +283,18 @@ jobs:
             echo "✅ Using artifacts from S3, skipping build"
           fi
       
-      - name: Configure AWS credentials for coverage download
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend for coverage download
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -289,11 +305,11 @@ jobs:
             S3_KEY="solvers/z3/coverage-mappings/coverage_mapping-${COVERAGE_COMMIT}.json.gz"
             
             if aws s3api head-object \
-              --bucket ${{ secrets.AWS_S3_BUCKET }} \
+              --bucket $AWS_S3_BUCKET \
               --key "$S3_KEY" >/dev/null 2>&1; then
               echo "📥 Downloading coverage mapping for commit: ${COVERAGE_COMMIT}"
               aws s3 cp \
-                s3://${{ secrets.AWS_S3_BUCKET }}/$S3_KEY \
+                s3://$AWS_S3_BUCKET/$S3_KEY \
                 coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
             else
@@ -303,7 +319,7 @@ jobs:
           else
             # Find latest coverage mapping
             echo "🔍 Finding latest coverage mapping in S3..."
-            LATEST=$(aws s3 ls s3://${{ secrets.AWS_S3_BUCKET }}/solvers/z3/coverage-mappings/ \
+            LATEST=$(aws s3 ls s3://$AWS_S3_BUCKET/solvers/z3/coverage-mappings/ \
               | grep "coverage_mapping-" \
               | sort -r \
               | head -n 1 \
@@ -312,7 +328,7 @@ jobs:
             if [ -n "$LATEST" ]; then
               echo "📥 Downloading latest coverage mapping: $LATEST"
               aws s3 cp \
-                s3://${{ secrets.AWS_S3_BUCKET }}/solvers/z3/coverage-mappings/$LATEST \
+                s3://$AWS_S3_BUCKET/solvers/z3/coverage-mappings/$LATEST \
                 coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
               echo "coverage_file=$LATEST" >> $GITHUB_OUTPUT
@@ -443,17 +459,21 @@ jobs:
             git clone https://github.com/z3prover/z3test.git z3test
           fi
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
 
       - name: Get latest CVC5 build from S3
         id: get-cvc5-build
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           echo "🔍 Getting latest CVC5 build from S3..."
           LATEST_CVC5_BUILD=$(python -c "from scripts.scheduling.s3_state import get_state_manager; m = get_state_manager('cvc5'); print(m.get_latest_available_build() or '')" 2>&1)
@@ -480,11 +500,11 @@ jobs:
           echo "DEBUG: Latest CVC5 build commit: $LATEST_CVC5_BUILD"
           
           if aws s3api head-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" 2>&1; then
             echo "✅ CVC5 binary exists in S3, downloading..."
             if aws s3 cp \
-              s3://${{ secrets.AWS_S3_BUCKET }}/$S3_KEY \
+              s3://$AWS_S3_BUCKET/$S3_KEY \
               artifacts-cvc5/artifacts.tar.gz; then
               echo "✅ CVC5 binary downloaded successfully"
               ls -lh artifacts-cvc5/artifacts.tar.gz
@@ -546,14 +566,14 @@ jobs:
           
           echo "DEBUG: Checking for binary at S3 key: $S3_KEY"
           echo "DEBUG: Latest build commit: $LATEST_BUILD"
-          echo "DEBUG: Bucket: ${{ secrets.AWS_S3_BUCKET }}"
+          echo "DEBUG: Bucket: $AWS_S3_BUCKET"
           
           if aws s3api head-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" 2>&1; then
             echo "✅ Binary exists in S3, downloading..."
             if aws s3 cp \
-              s3://${{ secrets.AWS_S3_BUCKET }}/$S3_KEY \
+              s3://$AWS_S3_BUCKET/$S3_KEY \
               artifacts/artifacts.tar.gz; then
               echo "✅ Binary downloaded successfully"
               ls -lh artifacts/artifacts.tar.gz
@@ -565,7 +585,7 @@ jobs:
           else
             echo "WARNING: Production binary not found in S3 at key: $S3_KEY"
             echo "DEBUG: Attempting to list objects in production directory..."
-            aws s3 ls s3://${{ secrets.AWS_S3_BUCKET }}/solvers/z3/builds/v2/production/ | head -5 || echo "Failed to list objects"
+            aws s3 ls s3://$AWS_S3_BUCKET/solvers/z3/builds/v2/production/ | head -5 || echo "Failed to list objects"
             echo "binary_available=false" >> $GITHUB_OUTPUT
           fi
 
@@ -743,13 +763,19 @@ jobs:
           echo "Created archive: ${ARCHIVE_NAME} ($ARCHIVE_SIZE)"
           echo "archive_name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
       
-      - name: Configure AWS credentials
+      - name: Configure storage backend
         if: steps.combine-bugs.outputs.bugs_found == 'true'
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Upload bugs to S3
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -764,10 +790,10 @@ jobs:
           
           aws s3 cp \
             ${ARCHIVE_NAME} \
-            s3://${{ secrets.AWS_S3_BUCKET }}/${S3_KEY}
+            s3://$AWS_S3_BUCKET/${S3_KEY}
           
           echo "✅ Uploaded $ARCHIVE_NAME to S3"
-          echo "S3 path: s3://${{ secrets.AWS_S3_BUCKET }}/${S3_KEY}"
+          echo "S3 path: s3://$AWS_S3_BUCKET/${S3_KEY}"
           echo "Total bugs: ${{ steps.combine-bugs.outputs.bug_count }}"
       
       - name: No bugs found
@@ -792,16 +818,21 @@ jobs:
       - name: Install dependencies
         run: pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Increment fuzz count and manage schedule
         env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           COMMIT_HASH="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"

@@ -192,12 +192,18 @@ jobs:
         run: |
           python3 scripts/z3/coverage/join_coverage_mappings.py
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Upload final coverage mapping to S3
         run: |
@@ -211,13 +217,13 @@ jobs:
           
           # Upload with tag for lifecycle rule
           aws s3api put-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" \
             --body coverage_mapping.json.gz \
             --tagging "Type=CoverageMapping"
           
           echo "✅ Uploaded coverage mapping to S3"
-          echo "S3 path: s3://${{ secrets.AWS_S3_BUCKET }}/${S3_KEY}"
+          echo "S3 path: s3://$AWS_S3_BUCKET/${S3_KEY}"
           echo "Commit hash: ${COMMIT_HASH}"
 
   # Update coverage state after successful build
@@ -238,17 +244,20 @@ jobs:
       - name: Install boto3
         run: pip install boto3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
 
       - name: Update coverage state
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           python3 scripts/coverage/coverage_state.py z3 update \
             --test-count ${{ needs.discover-tests.outputs.total_tests }} \

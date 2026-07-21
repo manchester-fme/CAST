@@ -15,6 +15,12 @@ from typing import Dict, Optional
 import boto3
 from botocore.exceptions import ClientError
 
+scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
+
+from storage_backend import build_client, get_bucket, get_provider, StorageConfigError
+
 
 class CoverageStateManager:
     """
@@ -41,8 +47,8 @@ class CoverageStateManager:
         self.region = region
         self.s3_key = f"solvers/{solver}/coverage-state/{self.STATE_FILE_NAME}"
 
-        # Initialize S3 client
-        self.s3_client = boto3.client('s3', region_name=region)
+        # Initialize S3-compatible client (AWS S3 or Cloudflare R2, via STORAGE_PROVIDER)
+        self.s3_client = build_client(region=region)
 
     def get_state(self) -> Optional[Dict]:
         """
@@ -206,8 +212,10 @@ Examples:
   python3 scripts/coverage/coverage_state.py cvc5 get
 
 Environment variables:
-  AWS_S3_BUCKET: S3 bucket name (required)
+  STORAGE_PROVIDER: "aws" (default/fallback) or "r2"
+  AWS_S3_BUCKET: S3 bucket name (used when STORAGE_PROVIDER=aws)
   AWS_REGION: AWS region (default: us-east-1)
+  R2_ACCOUNT_ID / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY: used when STORAGE_PROVIDER=r2
         """
     )
 
@@ -254,12 +262,15 @@ Environment variables:
 
     args = parser.parse_args()
 
-    # Get AWS configuration from environment
-    bucket = os.environ.get('AWS_S3_BUCKET')
-    if not bucket:
-        print("Error: AWS_S3_BUCKET environment variable is required", file=sys.stderr)
+    # Get storage configuration from environment (AWS S3 by default, or Cloudflare R2
+    # when STORAGE_PROVIDER=r2 — see scripts/storage_backend.py)
+    try:
+        bucket = get_bucket()
+    except StorageConfigError as e:
+        print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
     region = os.environ.get('AWS_REGION', 'us-east-1')
 
     # Initialize state manager

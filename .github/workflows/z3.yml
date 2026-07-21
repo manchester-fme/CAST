@@ -30,17 +30,21 @@ jobs:
       - name: Install dependencies
         run: pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Check build queue or add manual commit
         id: set-outputs
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           if [ -n "${{ inputs.z3_commit_hash }}" ]; then
             COMMIT_HASH="${{ inputs.z3_commit_hash }}"
@@ -121,17 +125,21 @@ jobs:
           COMPRESSED_SIZE=$(du -h z3/build/artifacts.tar.gz | cut -f1)
           echo "Compressed size: $COMPRESSED_SIZE"
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Check if commit is still in build queue
         id: check-queue
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
           # Capture both stdout and stderr, but extract only "true" or "false" from stdout
@@ -150,7 +158,7 @@ jobs:
         if: steps.check-queue.outputs.should_upload == 'true'
         run: |
           aws s3api put-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key solvers/z3/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body z3/build/artifacts.tar.gz \
             --tagging "Type=Production"
@@ -240,17 +248,21 @@ jobs:
           COMPRESSED_SIZE=$(du -h z3/build/artifacts.tar.gz | cut -f1)
           echo "Compressed size: $COMPRESSED_SIZE"
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Check if commit is still in build queue (coverage)
         id: check-queue-coverage
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
           IN_QUEUE=$(python scripts/scheduling/s3_state.py z3 build-queue check "$COMMIT_HASH" 2>&1 | tail -1)
@@ -266,7 +278,7 @@ jobs:
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
         run: |
           aws s3api put-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key solvers/z3/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body z3/build/artifacts.tar.gz \
             --tagging "Type=Coverage"
@@ -297,16 +309,20 @@ jobs:
       - name: Install dependencies
         run: pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Remove commit from build queue
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           python scripts/scheduling/s3_state.py z3 build-queue remove "$COMMIT_HASH"
@@ -332,16 +348,20 @@ jobs:
       - name: Install dependencies
         run: pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Remove failed commit from build queue
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         run: |
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "❌ Build failed for commit $COMMIT_HASH, removing from queue to prevent infinite retries"
