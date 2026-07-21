@@ -40,7 +40,7 @@ class StorageConfigError(Exception):
 def get_provider() -> str:
     """Returns 'aws' or 'r2'. Defaults to 'aws' so existing setups keep working
     unchanged, and so AWS remains the fallback if R2 needs to be reverted."""
-    provider = os.getenv('STORAGE_PROVIDER', 'aws').strip().lower()
+    provider = os.getenv('STORAGE_PROVIDER', 'r2').strip().lower()
     if provider not in ('aws', 'r2'):
         raise StorageConfigError(f"Unknown STORAGE_PROVIDER '{provider}', expected 'aws' or 'r2'")
     return provider
