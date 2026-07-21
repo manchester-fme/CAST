@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""S3 State File Utilities - Read/write JSON state files from S3 with atomic operations"""
+"""S3 State File Utilities - Read/write JSON state files from S3 with atomic operations.
+
+Works against either AWS S3 (default/fallback) or Cloudflare R2, selected via the
+STORAGE_PROVIDER environment variable. See scripts/storage_backend.py for details.
+"""
 
 import json
 import os
@@ -13,6 +17,12 @@ try:
 except ImportError:
     print("Error: boto3 is required. Install with: pip install boto3", file=sys.stderr)
     sys.exit(1)
+
+scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
+
+from storage_backend import build_client, get_bucket, get_provider, StorageConfigError
 
 
 class S3StateError(Exception):
@@ -38,9 +48,12 @@ class S3StateManager:
         self.region = region or os.getenv('AWS_REGION', 'eu-north-1')
         self.base_path = f"solvers/{solver}/fuzzing-state"
         try:
-            self.s3_client = boto3.client('s3', region_name=self.region)
+            self.s3_client = build_client(region=self.region)
+        except StorageConfigError as e:
+            raise S3StateError(str(e))
         except NoCredentialsError:
-            raise S3StateError("AWS credentials not found. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY")
+            raise S3StateError("Credentials not found. For AWS set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; "
+                                "for R2 (STORAGE_PROVIDER=r2) set R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY")
     
     def _get_s3_key(self, filename: str) -> str:
         return f"{self.base_path}/{filename}"
@@ -390,9 +403,11 @@ class S3StateManager:
 
 
 def get_state_manager(solver: str) -> S3StateManager:
-    bucket = os.getenv('AWS_S3_BUCKET')
-    if not bucket:
-        raise S3StateError("AWS_S3_BUCKET environment variable not set")
+    try:
+        bucket = get_bucket()
+    except StorageConfigError as e:
+        raise S3StateError(str(e))
+    print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
     return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION', 'eu-north-1'))
 
 

@@ -23,18 +23,21 @@ jobs:
         run: |
           pip install boto3
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Generate build matrix
         id: generate-matrix
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           MATRIX=$(python3 scripts/evaluation/rq2/generate_build_matrix.py cvc5)
           COMMIT_COUNT=$(echo "$MATRIX" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data['include']))")
@@ -123,12 +126,18 @@ jobs:
           tar -czf ../cvc5/build/artifacts-coverage.tar.gz .
           cd ..
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure storage backend
+        env:
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
       
       - name: Upload production binary to S3
         run: |
@@ -136,7 +145,7 @@ jobs:
           S3_KEY="evaluation/rq2/cvc5/builds/production/${COMMIT_HASH}.tar.gz"
           
           aws s3api put-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" \
             --body cvc5/build/artifacts-production.tar.gz
           
@@ -148,7 +157,7 @@ jobs:
           S3_KEY="evaluation/rq2/cvc5/builds/coverage/${COMMIT_HASH}.tar.gz"
           
           aws s3api put-object \
-            --bucket ${{ secrets.AWS_S3_BUCKET }} \
+            --bucket $AWS_S3_BUCKET \
             --key "$S3_KEY" \
             --body cvc5/build/artifacts-coverage.tar.gz
           
