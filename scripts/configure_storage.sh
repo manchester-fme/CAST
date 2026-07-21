@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-PROVIDER="${STORAGE_PROVIDER:-aws}"
+PROVIDER="${STORAGE_PROVIDER:-r2}"
 
 if [ "$PROVIDER" = "r2" ]; then
   : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required when STORAGE_PROVIDER=r2}"
