@@ -33,9 +33,7 @@ if [ "$PROVIDER" = "r2" ]; then
   echo "R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}"
   echo "R2_REGION=auto"
   echo "R2_DEFAULT_REGION=auto"
-  # Recognized by AWS CLI v2 (>=2.13) and boto3 for endpoint override.
   echo "R2_ENDPOINT_URL_S2=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-  echo "::notice::Storage backend: Cloudflare R2 (bucket: ${R2_BUCKET})"
 else
   : "${AWS_S3_BUCKET:?AWS_S3_BUCKET is required when STORAGE_PROVIDER=aws}"
   : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required when STORAGE_PROVIDER=aws}"
@@ -47,5 +45,4 @@ else
   echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
   echo "AWS_REGION=${AWS_REGION:-eu-north-1}"
   echo "AWS_DEFAULT_REGION=${AWS_REGION:-eu-north-1}"
-  echo "::notice::Storage backend: AWS S3 (bucket: ${AWS_S3_BUCKET})"
 fi
