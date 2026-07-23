@@ -139,7 +139,7 @@ jobs:
             echo "DEBUG: Check output: $CHECK_OUTPUT"
             echo "should_upload=false" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
         run: |
