@@ -142,13 +142,11 @@ jobs:
       
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
-        run: |
-          aws s3api put-object \
-            --bucket $CAST_BUCKET_NAME \
-            --key solvers/z3/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
-            --body z3/build/artifacts.tar.gz \
-            --tagging "Type=Production"
-          echo "✅ Uploaded production binary to S3"
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: solvers/z3/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          body: z3/build/artifacts.tar.gz
+          tagging: "Type=Production"
       
       - name: Discard build (not in queue)
         if: steps.check-queue.outputs.should_upload == 'false'
@@ -255,13 +253,11 @@ jobs:
       
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
-        run: |
-          aws s3api put-object \
-            --bucket $CAST_BUCKET_NAME \
-            --key solvers/z3/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
-            --body z3/build/artifacts.tar.gz \
-            --tagging "Type=Coverage"
-          echo "✅ Uploaded coverage binary to S3"
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: solvers/z3/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          body: z3/build/artifacts.tar.gz
+          tagging: "Type=Coverage"
       
       - name: Discard coverage build (not in queue)
         if: steps.check-queue-coverage.outputs.should_upload == 'false'

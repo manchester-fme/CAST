@@ -1,0 +1,21 @@
+name: S3 copy
+description: Runs "aws s3 cp" against the configured bucket (AWS S3 or Cloudflare R2)
+inputs:
+  source:
+    description: 'Copy source, e.g. a local path or an s3://<bucket>/<key> URI'
+    required: true
+  destination:
+    description: 'Copy destination, e.g. a local path or an s3://<bucket>/<key> URI'
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.CAST_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.CAST_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: ${{ env.CAST_DEFAULT_REGION }}
+        AWS_ENDPOINT_URL_S3: ${{ env.CAST_ENDPOINT_URL_S3 }}
+        SOURCE: ${{ inputs.source }}
+        DESTINATION: ${{ inputs.destination }}
+      run: aws s3 cp "$SOURCE" "$DESTINATION"

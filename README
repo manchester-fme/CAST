@@ -1,0 +1,73 @@
+CAST - Commit-Aware Solver Testing   
+====================================
+
+```
+.
+├── docs
+│   ├── commit-fuzzer.md
+│   ├── coverage-mapper.md
+│   ├── rq2-evaluation-plan.md
+│   └── scheduling-decisions.md
+├── LICENSE
+├── README
+└── scripts
+    ├── bitwuzla
+    │   └── build.sh
+    ├── check-upstream.sh
+    ├── coverage
+    │   ├── count_tests.py
+    │   └── coverage_state.py
+    ├── cvc5
+    │   ├── build.sh
+    │   ├── collect_build_artifacts.sh
+    │   ├── commit_fuzzer
+    │   │   ├── commit_fuzzer.py
+    │   │   ├── prepare_commit_fuzzer.py
+    │   │   ├── run_commit_fuzzer.sh
+    │   │   ├── run_prepare_commit_fuzzer.sh
+    │   │   ├── run_simple_fuzzer.sh
+    │   │   └── simple_commit_fuzzer.py
+    │   ├── coverage
+    │   │   ├── coverage_mapper.py
+    │   │   ├── generate_matrix.py
+    │   │   ├── join_coverage_mappings.py
+    │   │   └── run_coverage_builder.sh
+    │   ├── extract_build_artifacts.sh
+    │   └── run_regression_tests.sh
+    ├── download_cvc5.py
+    ├── evaluation
+    │   └── rq2
+    │       ├── commit_selection.py
+    │       ├── generate_build_matrix.py
+    │       └── generate_coverage_matrix.py
+    ├── measure_time.sh
+    ├── opensmt
+    │   └── build.sh
+    ├── oracle.py
+    ├── q3b
+    │   └── build.sh
+    ├── scheduling
+    │   ├── builder.py
+    │   ├── detect_cpp_changes.py
+    │   ├── fuzzer.py
+    │   ├── manager.py
+    │   ├── s3_state.py
+    │   └── s3_state.py:
+    ├── smtrat
+    │   └── build.sh
+    ├── stp
+    │   └── build.sh
+    └── z3
+        ├── build.sh
+        ├── collect_build_artifacts.sh
+        ├── commit_fuzzer
+        │   ├── prepare_commit_fuzzer.py
+        │   ├── run_prepare_commit_fuzzer.sh
+        │   └── simple_commit_fuzzer.py
+        ├── coverage
+        │   ├── coverage_mapper.py
+        │   ├── generate_matrix.py
+        │   ├── join_coverage_mappings.py
+        │   └── run_coverage_builder.sh
+        └── extract_build_artifacts.sh
+```
