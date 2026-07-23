@@ -18,4 +18,4 @@ runs:
         for k in CAST_BUCKET_NAME CAST_ACCOUNT_ID CAST_ACCESS_KEY_ID CAST_SECRET_ACCESS_KEY CAST_REGION; do
           export "$k=$(jq -r --arg k "$k" '.[$k] // ""' <<<"$ALL_SECRETS")"
         done
-        ./src/configure_storage.sh >> "$GITHUB_ENV"
+        ./src/util/configure_storage.sh >> "$GITHUB_ENV"
