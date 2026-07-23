@@ -213,23 +213,30 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
 
-      - name: Prepare production binary download
-        id: prep-download
-        run: |
-          mkdir -p artifacts
-          echo "s3_key=solvers/cvc5/builds/v2/production/${{ needs.check-latest-build.outputs.latest_build }}.tar.gz" >> $GITHUB_OUTPUT
-
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
         continue-on-error: true
-        uses: ./.github/actions/s3-download
-        with:
-          key: ${{ steps.prep-download.outputs.s3_key }}
-          destination: artifacts/artifacts.tar.gz
+        run: |
+          mkdir -p artifacts
+          LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
+          S3_KEY="solvers/cvc5/builds/v2/production/${LATEST_BUILD}.tar.gz"
+          
+          if aws s3api head-object \
+            --bucket $CAST_BUCKET_NAME \
+            --key "$S3_KEY" >/dev/null 2>&1; then
+            echo "📥 Downloading production binary for latest build: $LATEST_BUILD (for headers and compile_commands.json)"
+            aws s3 cp \
+              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              artifacts/artifacts.tar.gz
+            echo "artifacts_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "WARNING: Production binary not found in S3 for $LATEST_BUILD, will build as fallback"
+            echo "artifacts_available=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract headers and compile_commands.json
         id: extract-artifacts
-        if: steps.download-production-binary.outputs.found == 'true'
+        if: steps.download-production-binary.outputs.artifacts_available == 'true'
         run: |
           if [ -f "artifacts/artifacts.tar.gz" ]; then
             ./src/solvers/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build true
@@ -260,50 +267,42 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
 
-      - name: Download coverage map for specific commit
-        id: download-coverage-specific
-        if: inputs.coverage_commit_hash != ''
-        uses: ./.github/actions/s3-download
-        with:
-          key: solvers/cvc5/coverage-mappings/coverage_mapping-${{ inputs.coverage_commit_hash }}.json.gz
-          destination: coverage_mapping.json.gz
-
-      - name: Find latest coverage mapping
-        id: find-latest-coverage
-        if: inputs.coverage_commit_hash == ''
-        uses: ./.github/actions/s3-find-latest
-        with:
-          prefix: solvers/cvc5/coverage-mappings/
-          match: coverage_mapping-
-
-      - name: Download latest coverage mapping
-        id: download-coverage-latest
-        if: inputs.coverage_commit_hash == '' && steps.find-latest-coverage.outputs.key != ''
-        uses: ./.github/actions/s3-cp
-        with:
-          source: s3://${{ env.CAST_BUCKET_NAME }}/solvers/cvc5/coverage-mappings/${{ steps.find-latest-coverage.outputs.key }}
-          destination: coverage_mapping.json.gz
-
-      - name: Report coverage map download result
+      - name: Download coverage map from S3
         id: download-coverage
-        env:
-          SPECIFIC_FOUND: ${{ steps.download-coverage-specific.outputs.found }}
-          LATEST_KEY: ${{ steps.find-latest-coverage.outputs.key }}
-          IS_SPECIFIC: ${{ inputs.coverage_commit_hash != '' }}
         run: |
-          if [ "$IS_SPECIFIC" = "true" ]; then
-            if [ "$SPECIFIC_FOUND" = "true" ]; then
-              echo "✅ Downloaded coverage mapping for commit: ${{ inputs.coverage_commit_hash }}"
+          if [ -n "${{ inputs.coverage_commit_hash }}" ]; then
+            # Use specified commit hash
+            COVERAGE_COMMIT="${{ inputs.coverage_commit_hash }}"
+            S3_KEY="solvers/cvc5/coverage-mappings/coverage_mapping-${COVERAGE_COMMIT}.json.gz"
+            
+            if aws s3api head-object \
+              --bucket $CAST_BUCKET_NAME \
+              --key "$S3_KEY" >/dev/null 2>&1; then
+              echo "📥 Downloading coverage mapping for commit: ${COVERAGE_COMMIT}"
+              aws s3 cp \
+                s3://$CAST_BUCKET_NAME/$S3_KEY \
+                coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
             else
-              echo "❌ Coverage mapping not found for commit: ${{ inputs.coverage_commit_hash }}"
+              echo "❌ Coverage mapping not found for commit: ${COVERAGE_COMMIT}"
               echo "coverage_found=false" >> $GITHUB_OUTPUT
             fi
           else
-            if [ -n "$LATEST_KEY" ]; then
-              echo "✅ Downloaded latest coverage mapping: $LATEST_KEY"
+            # Find latest coverage mapping
+            echo "🔍 Finding latest coverage mapping in S3..."
+            LATEST=$(aws s3 ls s3://$CAST_BUCKET_NAME/solvers/cvc5/coverage-mappings/ \
+              | grep "coverage_mapping-" \
+              | sort -r \
+              | head -n 1 \
+              | awk '{print $4}' || echo "")
+            
+            if [ -n "$LATEST" ]; then
+              echo "📥 Downloading latest coverage mapping: $LATEST"
+              aws s3 cp \
+                s3://$CAST_BUCKET_NAME/solvers/cvc5/coverage-mappings/$LATEST \
+                coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
-              echo "coverage_file=$LATEST_KEY" >> $GITHUB_OUTPUT
+              echo "coverage_file=$LATEST" >> $GITHUB_OUTPUT
             else
               echo "❌ No coverage mappings found in S3"
               echo "coverage_found=false" >> $GITHUB_OUTPUT
@@ -449,24 +448,42 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
 
-      - name: Prepare production binary download
-        id: prep-production-download
-        run: |
-          mkdir -p artifacts
-          echo "s3_key=solvers/cvc5/builds/v2/production/${{ needs.check-latest-build.outputs.latest_build }}.tar.gz" >> $GITHUB_OUTPUT
-
       - name: Download latest production binary from S3
         id: download-production-binary
         continue-on-error: true
-        uses: ./.github/actions/s3-download
-        with:
-          key: ${{ steps.prep-production-download.outputs.s3_key }}
-          destination: artifacts/artifacts.tar.gz
-          debug_list_prefix: solvers/cvc5/builds/v2/production/
+        run: |
+          mkdir -p artifacts
+          LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
+          S3_KEY="solvers/cvc5/builds/v2/production/${LATEST_BUILD}.tar.gz"
+          
+          echo "DEBUG: Checking for binary at S3 key: $S3_KEY"
+          echo "DEBUG: Latest build commit: $LATEST_BUILD"
+          echo "DEBUG: Bucket: $CAST_BUCKET_NAME"
+          
+          if aws s3api head-object \
+            --bucket $CAST_BUCKET_NAME \
+            --key "$S3_KEY" 2>&1; then
+            echo "✅ Binary exists in S3, downloading..."
+            if aws s3 cp \
+              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              artifacts/artifacts.tar.gz; then
+              echo "✅ Binary downloaded successfully"
+              ls -lh artifacts/artifacts.tar.gz
+              echo "binary_available=true" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Binary download failed"
+              echo "binary_available=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "WARNING: Production binary not found in S3 at key: $S3_KEY"
+            echo "DEBUG: Attempting to list objects in production directory..."
+            aws s3 ls s3://$CAST_BUCKET_NAME/solvers/cvc5/builds/v2/production/ | head -5 || echo "Failed to list objects"
+            echo "binary_available=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract production binary
         id: extract-production-binary
-        if: steps.download-production-binary.outputs.found == 'true'
+        if: steps.download-production-binary.outputs.binary_available == 'true'
         run: |
           if [ -f "artifacts/artifacts.tar.gz" ]; then
             ./src/solvers/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build false
@@ -510,14 +527,36 @@ jobs:
         id: download-z3-binary
         if: steps.get-z3-build.outputs.z3_build_available == 'true'
         continue-on-error: true
-        uses: ./.github/actions/s3-download
-        with:
-          key: solvers/z3/builds/v2/production/${{ steps.get-z3-build.outputs.z3_build }}.tar.gz
-          destination: artifacts-z3/artifacts.tar.gz
+        run: |
+          mkdir -p artifacts-z3
+          LATEST_Z3_BUILD="${{ steps.get-z3-build.outputs.z3_build }}"
+          S3_KEY="solvers/z3/builds/v2/production/${LATEST_Z3_BUILD}.tar.gz"
+          
+          echo "DEBUG: Checking for Z3 binary at S3 key: $S3_KEY"
+          echo "DEBUG: Latest Z3 build commit: $LATEST_Z3_BUILD"
+          
+          if aws s3api head-object \
+            --bucket $CAST_BUCKET_NAME \
+            --key "$S3_KEY" 2>&1; then
+            echo "✅ Z3 binary exists in S3, downloading..."
+            if aws s3 cp \
+              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              artifacts-z3/artifacts.tar.gz; then
+              echo "✅ Z3 binary downloaded successfully"
+              ls -lh artifacts-z3/artifacts.tar.gz
+              echo "z3_binary_available=true" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Z3 binary download failed"
+              echo "z3_binary_available=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "WARNING: Z3 production binary not found in S3 at key: $S3_KEY"
+            echo "z3_binary_available=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract Z3 production binary
         id: extract-z3-binary
-        if: steps.download-z3-binary.outputs.found == 'true'
+        if: steps.download-z3-binary.outputs.z3_binary_available == 'true'
         run: |
           if [ -f "artifacts-z3/artifacts.tar.gz" ]; then
             mkdir -p z3/build
@@ -544,7 +583,7 @@ jobs:
       - name: Install z3-solver as fallback
         if: |
           (steps.get-z3-build.outputs.z3_build_available != 'true') ||
-          (steps.download-z3-binary.outputs.found != 'true') ||
+          (steps.download-z3-binary.outputs.z3_binary_available != 'true') ||
           (steps.extract-z3-binary.outputs.z3_binary_available != 'true')
         run: |
           echo "⚠️ Z3 binary from S3 not available, installing z3-solver as fallback"
@@ -655,21 +694,25 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
       
-      - name: Check bugs archive exists
-        if: steps.combine-bugs.outputs.bugs_found == 'true'
-        run: |
-          if [ ! -f "${{ steps.create-archive.outputs.archive_name }}" ]; then
-            echo "❌ Error: Archive file not found: ${{ steps.create-archive.outputs.archive_name }}"
-            exit 1
-          fi
-
       - name: Upload bugs to S3
         if: steps.combine-bugs.outputs.bugs_found == 'true'
-        uses: ./.github/actions/s3-cp
-        with:
-          source: ${{ steps.create-archive.outputs.archive_name }}
-          destination: s3://${{ env.CAST_BUCKET_NAME }}/solvers/cvc5/bugs/${{ steps.create-archive.outputs.archive_name }}
-
+        run: |
+          ARCHIVE_NAME="${{ steps.create-archive.outputs.archive_name }}"
+          S3_KEY="solvers/cvc5/bugs/${ARCHIVE_NAME}"
+          
+          if [ ! -f "$ARCHIVE_NAME" ]; then
+            echo "❌ Error: Archive file not found: $ARCHIVE_NAME"
+            exit 1
+          fi
+          
+          aws s3 cp \
+            ${ARCHIVE_NAME} \
+            s3://$CAST_BUCKET_NAME/${S3_KEY}
+          
+          echo "✅ Uploaded $ARCHIVE_NAME to S3"
+          echo "S3 path: s3://$CAST_BUCKET_NAME/${S3_KEY}"
+          echo "Total bugs: ${{ steps.combine-bugs.outputs.bug_count }}"
+      
       - name: No bugs found
         if: steps.combine-bugs.outputs.bugs_found != 'true'
         run: |

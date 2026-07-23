@@ -198,19 +198,26 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
       
-      - name: Check coverage mapping exists
+      - name: Upload final coverage mapping to S3
         run: |
+          COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
+          S3_KEY="solvers/z3/coverage-mappings/coverage_mapping-${COMMIT_HASH}.json.gz"
+          
           if [ ! -f "coverage_mapping.json.gz" ]; then
             echo "❌ Error: coverage_mapping.json.gz not found"
             exit 1
           fi
-
-      - name: Upload final coverage mapping to S3
-        uses: ./.github/actions/s3-put-object
-        with:
-          key: solvers/z3/coverage-mappings/coverage_mapping-${{ steps.get-commit.outputs.commit_hash }}.json.gz
-          body: coverage_mapping.json.gz
-          tagging: "Type=CoverageMapping"
+          
+          # Upload with tag for lifecycle rule
+          aws s3api put-object \
+            --bucket $CAST_BUCKET_NAME \
+            --key "$S3_KEY" \
+            --body coverage_mapping.json.gz \
+            --tagging "Type=CoverageMapping"
+          
+          echo "✅ Uploaded coverage mapping to S3"
+          echo "S3 path: s3://$CAST_BUCKET_NAME/${S3_KEY}"
+          echo "Commit hash: ${COMMIT_HASH}"
 
   # Update coverage state after successful build
   update-state:
