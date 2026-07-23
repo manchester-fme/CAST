@@ -1,14 +1,12 @@
 name: Configure storage backend
 description: Resolves the object storage backend and exports its settings into GITHUB_ENV
-
 inputs:
   secrets:
-    description: 'Pass ${{ toJSON(secrets) }} from the caller'
+    description: 'Pass toJSON(secrets) from the caller'
     required: true
   storage_provider:
-    description: 'Pass ${{ vars.CAST_STORAGE_PROVIDER }} from the caller ("r2" or "aws")'
+    description: 'Pass vars.CAST_STORAGE_PROVIDER from the caller ("r2" or "aws")'
     required: false
-
 runs:
   using: composite
   steps:
