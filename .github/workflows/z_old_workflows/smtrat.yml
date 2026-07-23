@@ -1,4 +1,4 @@
-name: Build Bitwuzla
+name: Build SMT-RAT
 
 on:
   workflow_dispatch:
@@ -18,14 +18,14 @@ jobs:
         id: cache-restore
         with:
           path: .cache
-          key: solver-bitwuzla-latest
+          key: solver-smtrat-latest
           restore-keys: |
-            solver-bitwuzla-
+            solver-smtrat-
       
       - name: Check for upstream changes
         id: check-upstream
         run: |
-          ./scripts/check-upstream.sh bitwuzla https://github.com/bitwuzla/bitwuzla.git
+          ./src/check-upstream.sh smtrat https://github.com/smtrat/smtrat.git
           echo "build_needed=$(cat .build_status | grep build_needed | cut -d'=' -f2)" >> $GITHUB_OUTPUT
           echo "sha=$(cat .build_status | grep sha | cut -d'=' -f2)" >> $GITHUB_OUTPUT
       
@@ -34,12 +34,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: solver-bitwuzla-${{ steps.check-upstream.outputs.sha }}
+          key: solver-smtrat-${{ steps.check-upstream.outputs.sha }}
       
-      - name: Build Bitwuzla
+      - name: Build SMT-RAT
         if: steps.check-upstream.outputs.build_needed == 'true'
-        run: ./scripts/bitwuzla/build.sh
+        run: ./src/smtrat/build.sh
       
       - name: Skip build (up to date)
         if: steps.check-upstream.outputs.build_needed == 'false'
-        run: echo "✅ Bitwuzla is up to date - skipping build"
+        run: echo "✅ SMT-RAT is up to date - skipping build"

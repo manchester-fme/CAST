@@ -1,4 +1,4 @@
-name: Z3 RQ2 Coverage Mapping (Variant 1)
+name: CVC5 RQ2 Coverage Mapping (Variant 1)
 
 on:
   workflow_dispatch:
@@ -31,32 +31,24 @@ jobs:
           pip install boto3 psutil
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Generate combined matrix
         id: generate-matrix
         run: |
           MAX_COMMITS="${{ inputs.max_commits }}"
           if [ -n "$MAX_COMMITS" ] && [ "$MAX_COMMITS" != "" ]; then
-            RESULT=$(python3 scripts/evaluation/rq2/generate_coverage_matrix.py z3 "$MAX_COMMITS")
+            RESULT=$(python3 src/evaluation/rq2/generate_coverage_matrix.py cvc5 "$MAX_COMMITS")
           else
-            RESULT=$(python3 scripts/evaluation/rq2/generate_coverage_matrix.py z3)
+            RESULT=$(python3 src/evaluation/rq2/generate_coverage_matrix.py cvc5)
           fi
           
           MATRIX=$(echo "$RESULT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(json.dumps(data['include'], separators=(',', ':')))")
           TOTAL_COMMITS=$(echo "$RESULT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['total_commits'])")
           CHUNKS_PER_COMMIT=$(echo "$RESULT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['chunks_per_commit'])")
-          
           COMMIT_MATRIX=$(echo "$RESULT" | python3 -c "import sys, json; data=json.load(sys.stdin); commits = sorted(set(item['commit'] for item in data['include'])); print(json.dumps({'include': [{'commit': c} for c in commits]}, separators=(',', ':')))")
           
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
@@ -80,48 +72,24 @@ jobs:
         uses: actions/checkout@v5
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Download coverage binary
         run: |
           COMMIT_HASH="${{ matrix.commit }}"
-          S3_KEY="evaluation/rq2/z3/builds/coverage/${COMMIT_HASH}.tar.gz"
+          S3_KEY="evaluation/rq2/cvc5/builds/coverage/${COMMIT_HASH}.tar.gz"
           
           mkdir -p artifacts
-          aws s3 cp s3://$AWS_S3_BUCKET/$S3_KEY artifacts/artifacts.tar.gz
+          aws s3 cp s3://$BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz
           echo "✅ Downloaded coverage binary for $COMMIT_HASH"
       
       - name: Extract coverage binary
         run: |
-          mkdir -p z3/build
-          ./scripts/z3/extract_build_artifacts.sh artifacts/artifacts.tar.gz z3/build true
-      
-      - name: Clone z3test repository
-        run: |
-          if [ -d "z3test" ]; then
-            echo "z3test directory already exists, skipping clone"
-          else
-            git clone https://github.com/z3prover/z3test.git z3test
-          fi
-      
-      - name: Install CVC5 oracle
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          pip install requests
-          python3 scripts/download_cvc5.py $HOME/.local/bin
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          cvc5 --version
+          mkdir -p cvc5/build
+          ./src/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build true
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -133,17 +101,18 @@ jobs:
           pip install psutil
       
       - name: Run coverage analysis
+        working-directory: cvc5/build
         run: |
-          ${{ github.workspace }}/scripts/measure_time.sh \
-            ${{ github.workspace }}/scripts/z3/coverage/run_coverage_builder.sh \
-            ${{ matrix.chunk.start_index }} \
-            ${{ matrix.chunk.end_index }}
+          python3 ../../src/cvc5/coverage/coverage_mapper.py \
+            --build-dir . \
+            --start-index ${{ matrix.chunk.start_index }} \
+            --end-index ${{ matrix.chunk.end_index }}
       
       - name: Upload coverage mapping chunk
         uses: actions/upload-artifact@v4
         with:
           name: coverage-mapping-${{ matrix.commit }}-${{ matrix.chunk.job_name }}
-          path: z3/build/coverage_mapping_${{ matrix.chunk.start_index }}_${{ matrix.chunk.end_index }}.json
+          path: cvc5/build/coverage_mapping_${{ matrix.chunk.start_index }}_${{ matrix.chunk.end_index }}.json
           retention-days: 1
 
   join-mappings:
@@ -167,25 +136,18 @@ jobs:
       
       - name: Join coverage mappings
         run: |
-          python3 scripts/z3/coverage/join_coverage_mappings.py
+          python3 src/cvc5/coverage/join_coverage_mappings.py
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Upload coverage mapping to S3
         run: |
           COMMIT_HASH="${{ matrix.commit }}"
-          S3_KEY="evaluation/rq2/z3/coverage-mappings/variant1/coverage_mapping-${COMMIT_HASH}.json.gz"
+          S3_KEY="evaluation/rq2/cvc5/coverage-mappings/variant1/coverage_mapping-${COMMIT_HASH}.json.gz"
           
           if [ ! -f "coverage_mapping.json.gz" ]; then
             echo "❌ Error: coverage_mapping.json.gz not found"
@@ -193,7 +155,7 @@ jobs:
           fi
           
           aws s3api put-object \
-            --bucket $AWS_S3_BUCKET \
+            --bucket $BUCKET_NAME \
             --key "$S3_KEY" \
             --body coverage_mapping.json.gz
           

@@ -46,23 +46,16 @@ jobs:
           pip install boto3 GitPython requests tree-sitter-languages
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Run commit selection
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CMD="python3 scripts/evaluation/rq2/commit_selection.py \
+          CMD="python3 src/evaluation/rq2/commit_selection.py \
             cvc5 \
             https://github.com/cvc5/cvc5.git \
             --years 2 \

@@ -1,10 +1,10 @@
-name: CVC5 Coverage Mapper
+name: cvc5 Coverage Mapper
 
 on:
   workflow_call:
     inputs:
       cvc5_commit_hash:
-        description: 'CVC5 commit hash to build coverage for'
+        description: 'cvc5 commit hash to build coverage for'
         required: false
         type: string
       test_count:
@@ -18,13 +18,13 @@ on:
         required: true
       AWS_REGION:
         required: true
-      AWS_S3_BUCKET:
+      BUCKET_NAME:
         required: true
 
   workflow_dispatch:
     inputs:
       cvc5_commit_hash:
-        description: 'Optional: CVC5 commit hash to build coverage mapping for (defaults to HEAD)'
+        description: 'Optional: cvc5 commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
         type: string
 
@@ -43,7 +43,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       
-      - name: Checkout CVC5 repository
+      - name: Checkout cvc5 repository
         run: |
           if [ -d "cvc5" ]; then
             cd cvc5
@@ -53,7 +53,7 @@ jobs:
             cd cvc5
           fi
       
-      - name: Checkout CVC5 specific commit if provided
+      - name: Checkout cvc5 specific commit if provided
         if: inputs.cvc5_commit_hash != ''
         run: |
           cd cvc5
@@ -77,7 +77,7 @@ jobs:
       - name: Generate dynamic matrix
         id: generate-matrix
         run: |
-          python3 scripts/cvc5/coverage/generate_matrix.py \
+          python3 src/cvc5/coverage/generate_matrix.py \
             --build-dir cvc5/build \
             --max-job-time 360 \
             --buffer 60 \
@@ -105,7 +105,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       
-      - name: Checkout CVC5 repository
+      - name: Checkout cvc5 repository
         run: |
           if [ -d "cvc5" ]; then
             cd cvc5
@@ -115,20 +115,20 @@ jobs:
             cd cvc5
           fi
       
-      - name: Checkout CVC5 specific commit if provided
+      - name: Checkout cvc5 specific commit if provided
         if: inputs.cvc5_commit_hash != ''
         run: |
           cd cvc5
           git checkout ${{ inputs.cvc5_commit_hash }}
           echo "Checked out commit: $(git rev-parse HEAD)"
       
-      - name: Build CVC5 with coverage
+      - name: Build cvc5 with coverage
         run: |
-          ./scripts/cvc5/build.sh --coverage
+          ./src/cvc5/build.sh --coverage
       
       - name: Run coverage analysis (tests ${{ matrix.start_index }}-${{ matrix.end_index }})
         run: |
-          ${{ github.workspace }}/scripts/measure_time.sh ${{ github.workspace }}/scripts/cvc5/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
+          ${{ github.workspace }}/src/measure_time.sh ${{ github.workspace }}/src/cvc5/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
       
       - name: Upload coverage mapping
         uses: actions/upload-artifact@v4
@@ -148,7 +148,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       
-      - name: Get CVC5 commit hash
+      - name: Get cvc5 commit hash
         id: get-commit
         run: |
           if [ -n "${{ inputs.cvc5_commit_hash }}" ]; then
@@ -166,7 +166,7 @@ jobs:
             cd ..
           fi
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
-          echo "CVC5 commit hash: $COMMIT_HASH"
+          echo "cvc5 commit hash: $COMMIT_HASH"
       
       - name: Download all coverage mappings
         uses: actions/download-artifact@v4
@@ -175,20 +175,13 @@ jobs:
       
       - name: Join coverage mappings
         run: |
-          python3 scripts/cvc5/coverage/join_coverage_mappings.py
+          python3 src/cvc5/coverage/join_coverage_mappings.py
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Upload final coverage mapping to S3
         run: |
@@ -202,13 +195,13 @@ jobs:
           
           # Upload with tag for lifecycle rule
           aws s3api put-object \
-            --bucket $AWS_S3_BUCKET \
+            --bucket $BUCKET_NAME \
             --key "$S3_KEY" \
             --body coverage_mapping.json.gz \
             --tagging "Type=CoverageMapping"
           
           echo "✅ Uploaded coverage mapping to S3"
-          echo "S3 path: s3://$AWS_S3_BUCKET/${S3_KEY}"
+          echo "S3 path: s3://$BUCKET_NAME/${S3_KEY}"
           echo "Commit hash: ${COMMIT_HASH}"
 
   # Update coverage state after successful build
@@ -230,21 +223,14 @@ jobs:
         run: pip install boto3
 
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
 
       - name: Update coverage state
         run: |
-          python3 scripts/coverage/coverage_state.py cvc5 update \
+          python3 src/coverage/coverage_state.py cvc5 update \
             --test-count ${{ needs.discover-tests.outputs.total_tests }} \
             --commit-hash ${{ needs.join-mappings.outputs.commit_hash }} \
             --updated-by "${{ github.workflow }}"

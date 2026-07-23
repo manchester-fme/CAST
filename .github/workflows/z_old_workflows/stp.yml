@@ -1,4 +1,4 @@
-name: Build Q3B
+name: Build STP
 
 on:
   workflow_dispatch:
@@ -18,14 +18,14 @@ jobs:
         id: cache-restore
         with:
           path: .cache
-          key: solver-q3b-latest
+          key: solver-stp-latest
           restore-keys: |
-            solver-q3b-
+            solver-stp-
       
       - name: Check for upstream changes
         id: check-upstream
         run: |
-          ./scripts/check-upstream.sh q3b https://github.com/usi-verification-and-security/Q3B.git
+          ./src/check-upstream.sh stp https://github.com/stp/stp.git
           echo "build_needed=$(cat .build_status | grep build_needed | cut -d'=' -f2)" >> $GITHUB_OUTPUT
           echo "sha=$(cat .build_status | grep sha | cut -d'=' -f2)" >> $GITHUB_OUTPUT
       
@@ -34,12 +34,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: solver-q3b-${{ steps.check-upstream.outputs.sha }}
+          key: solver-stp-${{ steps.check-upstream.outputs.sha }}
       
-      - name: Build Q3B
+      - name: Build STP
         if: steps.check-upstream.outputs.build_needed == 'true'
-        run: ./scripts/q3b/build.sh
+        run: ./src/stp/build.sh
       
       - name: Skip build (up to date)
         if: steps.check-upstream.outputs.build_needed == 'false'
-        run: echo "✅ Q3B is up to date - skipping build"
+        run: echo "✅ STP is up to date - skipping build"

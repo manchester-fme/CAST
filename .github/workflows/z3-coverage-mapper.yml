@@ -18,7 +18,7 @@ on:
         required: true
       AWS_REGION:
         required: true
-      AWS_S3_BUCKET:
+      BUCKET_NAME:
         required: true
 
   workflow_dispatch:
@@ -78,7 +78,7 @@ jobs:
       - name: Generate dynamic matrix
         id: generate-matrix
         run: |
-          python3 scripts/z3/coverage/generate_matrix.py \
+          python3 src/z3/coverage/generate_matrix.py \
             --z3test-dir z3test \
             --max-job-time 360 \
             --buffer 60 \
@@ -134,17 +134,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pip install requests
-          python3 scripts/download_cvc5.py $HOME/.local/bin
+          python3 src/download_cvc5.py $HOME/.local/bin
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           cvc5 --version
       
       - name: Build Z3 with coverage
         run: |
-          ./scripts/z3/build.sh --coverage
+          ./src/z3/build.sh --coverage
       
       - name: Run coverage analysis (tests ${{ matrix.start_index }}-${{ matrix.end_index }})
         run: |
-          ${{ github.workspace }}/scripts/measure_time.sh ${{ github.workspace }}/scripts/z3/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
+          ${{ github.workspace }}/src/measure_time.sh ${{ github.workspace }}/src/z3/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
       
       - name: Upload coverage mapping
         uses: actions/upload-artifact@v4
@@ -190,20 +190,13 @@ jobs:
       
       - name: Join coverage mappings
         run: |
-          python3 scripts/z3/coverage/join_coverage_mappings.py
+          python3 src/z3/coverage/join_coverage_mappings.py
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Upload final coverage mapping to S3
         run: |
@@ -217,13 +210,13 @@ jobs:
           
           # Upload with tag for lifecycle rule
           aws s3api put-object \
-            --bucket $AWS_S3_BUCKET \
+            --bucket $BUCKET_NAME \
             --key "$S3_KEY" \
             --body coverage_mapping.json.gz \
             --tagging "Type=CoverageMapping"
           
           echo "✅ Uploaded coverage mapping to S3"
-          echo "S3 path: s3://$AWS_S3_BUCKET/${S3_KEY}"
+          echo "S3 path: s3://$BUCKET_NAME/${S3_KEY}"
           echo "Commit hash: ${COMMIT_HASH}"
 
   # Update coverage state after successful build
@@ -245,21 +238,14 @@ jobs:
         run: pip install boto3
 
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
 
       - name: Update coverage state
         run: |
-          python3 scripts/coverage/coverage_state.py z3 update \
+          python3 src/coverage/coverage_state.py z3 update \
             --test-count ${{ needs.discover-tests.outputs.total_tests }} \
             --commit-hash ${{ needs.join-mappings.outputs.commit_hash }} \
             --updated-by "${{ github.workflow }}"

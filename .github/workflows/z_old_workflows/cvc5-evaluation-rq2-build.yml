@@ -1,4 +1,4 @@
-name: Z3 RQ2 Binary Building
+name: CVC5 RQ2 Binary Building
 
 on:
   workflow_dispatch:
@@ -24,22 +24,15 @@ jobs:
           pip install boto3
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Generate build matrix
         id: generate-matrix
         run: |
-          MATRIX=$(python3 scripts/evaluation/rq2/generate_build_matrix.py z3)
+          MATRIX=$(python3 src/evaluation/rq2/generate_build_matrix.py cvc5)
           COMMIT_COUNT=$(echo "$MATRIX" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data['include']))")
           
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
@@ -61,39 +54,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       
-      - name: Prepare Z3 for commit
+      - name: Prepare CVC5 for commit
         run: |
           COMMIT_HASH="${{ matrix.commit }}"
           echo "🔨 Building commit: $COMMIT_HASH"
-          if [ -d "z3" ]; then
-            rm -rf z3
+          if [ -d "cvc5" ]; then
+            rm -rf cvc5
           fi
-          git clone https://github.com/Z3Prover/z3.git z3
-          cd z3
+          git clone https://github.com/cvc5/cvc5.git cvc5
+          cd cvc5
           git checkout $COMMIT_HASH
           echo "Checked out commit: $(git rev-parse HEAD)"
           cd ..
       
-      - name: Build Z3 production binary
+      - name: Build CVC5 production binary
         run: |
-          ./scripts/z3/build.sh --static
+          ./src/cvc5/build.sh --static
       
       - name: Get commit hash
         id: get-commit
-        working-directory: z3
+        working-directory: cvc5
         run: |
           COMMIT_HASH=$(git rev-parse HEAD)
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
-          echo "Z3 commit hash: $COMMIT_HASH"
+          echo "CVC5 commit hash: $COMMIT_HASH"
       
       - name: Collect production artifacts
         run: |
-          ./scripts/z3/collect_build_artifacts.sh z3/build .artifacts-production
+          ./src/cvc5/collect_build_artifacts.sh cvc5/build .artifacts-production
       
       - name: Compress production artifacts
         run: |
           cd .artifacts-production
-          tar -czf ../z3/build/artifacts-production.tar.gz .
+          tar -czf ../cvc5/build/artifacts-production.tar.gz .
           cd ..
       
       - name: Install LLVM/Clang 17 for coverage build
@@ -106,60 +99,53 @@ jobs:
       
       - name: Clean build for coverage
         run: |
-          if [ -d "z3/build" ]; then
-            rm -rf z3/build
+          if [ -d "cvc5/build" ]; then
+            rm -rf cvc5/build
           fi
       
-      - name: Build Z3 coverage binary
+      - name: Build CVC5 coverage binary
         run: |
           export CXX="clang++ --gcc-toolchain=/usr"
           export CC="clang --gcc-toolchain=/usr"
-          ./scripts/z3/build.sh --static --coverage
+          ./src/cvc5/build.sh --static --coverage
       
       - name: Collect coverage artifacts
         run: |
-          ./scripts/z3/collect_build_artifacts.sh z3/build .artifacts-coverage
+          ./src/cvc5/collect_build_artifacts.sh cvc5/build .artifacts-coverage
       
       - name: Compress coverage artifacts
         run: |
           cd .artifacts-coverage
-          tar -czf ../z3/build/artifacts-coverage.tar.gz .
+          tar -czf ../cvc5/build/artifacts-coverage.tar.gz .
           cd ..
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.STORAGE_PROVIDER }}
       
       - name: Upload production binary to S3
         run: |
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
-          S3_KEY="evaluation/rq2/z3/builds/production/${COMMIT_HASH}.tar.gz"
+          S3_KEY="evaluation/rq2/cvc5/builds/production/${COMMIT_HASH}.tar.gz"
           
           aws s3api put-object \
-            --bucket $AWS_S3_BUCKET \
+            --bucket $BUCKET_NAME \
             --key "$S3_KEY" \
-            --body z3/build/artifacts-production.tar.gz
+            --body cvc5/build/artifacts-production.tar.gz
           
           echo "✅ Uploaded production binary to S3: $S3_KEY"
       
       - name: Upload coverage binary to S3
         run: |
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
-          S3_KEY="evaluation/rq2/z3/builds/coverage/${COMMIT_HASH}.tar.gz"
+          S3_KEY="evaluation/rq2/cvc5/builds/coverage/${COMMIT_HASH}.tar.gz"
           
           aws s3api put-object \
-            --bucket $AWS_S3_BUCKET \
+            --bucket $BUCKET_NAME \
             --key "$S3_KEY" \
-            --body z3/build/artifacts-coverage.tar.gz
+            --body cvc5/build/artifacts-coverage.tar.gz
           
           echo "✅ Uploaded coverage binary to S3: $S3_KEY"
 

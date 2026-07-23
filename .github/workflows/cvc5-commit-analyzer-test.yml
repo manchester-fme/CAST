@@ -1,4 +1,4 @@
-name: CVC5 Commit Analyzer Test
+name: cvc5 Commit Analyzer Test
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
           # Set environment variables to ensure clang uses GCC 14 toolchain
           export CXX="clang++ --gcc-toolchain=/usr"
           export CC="clang --gcc-toolchain=/usr"
-          ./scripts/cvc5/build.sh --coverage
+          ./src/cvc5/build.sh --coverage
       
       - name: Download coverage map
         uses: dawidd6/action-download-artifact@v6
@@ -77,8 +77,8 @@ jobs:
           SKIP_COVERAGE_ENFORCEMENT: "false"
           MIN_OVERALL_COVERAGE: "80"
         run: |
-          ${{ github.workspace }}/scripts/cvc5/commit_fuzzer/run_prepare_commit_fuzzer.sh \
-            --python-script ${{ github.workspace }}/scripts/cvc5/commit_fuzzer/prepare_commit_fuzzer.py \
+          ${{ github.workspace }}/src/cvc5/commit_fuzzer/run_prepare_commit_fuzzer.sh \
+            --python-script ${{ github.workspace }}/src/cvc5/commit_fuzzer/prepare_commit_fuzzer.py \
             --coverage-file ../coverage_mapping.json \
             --compile-commands build \
             50
