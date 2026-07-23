@@ -26,7 +26,7 @@ Compare FMFuzz (directed fuzzing towards committed changes) against a baseline (
 ### Workflow
 - **Z3**: `.github/workflows/z3-evaluation-rq2-commit-selection.yml`
 - **CVC5**: `.github/workflows/cvc5-evaluation-rq2-commit-selection.yml`
-- **Script**: `scripts/evaluation/rq2/commit_selection.py`
+- **Script**: `src/evaluation/rq2/commit_selection.py`
 
 ### Process
 1. **Discover commits** (last 2 years with C++ changes)
@@ -99,7 +99,7 @@ Compare FMFuzz (directed fuzzing towards committed changes) against a baseline (
 ### Workflow
 - **Z3**: `.github/workflows/z3-evaluation-rq2-build.yml`
 - **CVC5**: `.github/workflows/cvc5-evaluation-rq2-build.yml`
-- **Script**: `scripts/evaluation/rq2/generate_build_matrix.py`
+- **Script**: `src/evaluation/rq2/generate_build_matrix.py`
 
 ### Process
 1. **Generate matrix** from selected commits
@@ -131,7 +131,7 @@ Compare FMFuzz (directed fuzzing towards committed changes) against a baseline (
 ### Workflow
 - **Z3**: `.github/workflows/z3-evaluation-rq2-coverage-mapping.yml`
 - **CVC5**: `.github/workflows/cvc5-evaluation-rq2-coverage-mapping.yml`
-- **Script**: `scripts/evaluation/rq2/generate_coverage_matrix.py`
+- **Script**: `src/evaluation/rq2/generate_coverage_matrix.py`
 
 ### Process
 1. **Generate combined matrix** (commit × chunk)

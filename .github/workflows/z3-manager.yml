@@ -27,17 +27,10 @@ jobs:
           pip install boto3 GitPython requests
       
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
       
       - name: Run manager
         env:
@@ -46,16 +39,16 @@ jobs:
           if [ -n "${{ inputs.commit_hash }}" ]; then
             # Manual trigger: check for C++ changes before adding to build queue
             COMMIT_HASH="${{ inputs.commit_hash }}"
-            if python3 scripts/scheduling/detect_cpp_changes.py https://github.com/Z3Prover/z3.git "$COMMIT_HASH" --token $GITHUB_TOKEN; then
+            if python3 src/scheduling/detect_cpp_changes.py https://github.com/Z3Prover/z3.git "$COMMIT_HASH" --token $GITHUB_TOKEN; then
               echo "✅ Commit $COMMIT_HASH has C++ changes, adding to build queue and fuzzing schedule"
-              python3 scripts/scheduling/s3_state.py z3 build-queue add "$COMMIT_HASH"
-              python3 scripts/scheduling/s3_state.py z3 fuzzing-schedule add "$COMMIT_HASH"
+              python3 src/scheduling/s3_state.py z3 build-queue add "$COMMIT_HASH"
+              python3 src/scheduling/s3_state.py z3 fuzzing-schedule add "$COMMIT_HASH"
             else
               echo "❌ Commit $COMMIT_HASH has no C++ changes, skipping"
               exit 1
             fi
           else
             # Scheduled run: check commits and update queues
-            python3 scripts/scheduling/manager.py z3 https://github.com/Z3Prover/z3.git --token $GITHUB_TOKEN
+            python3 src/scheduling/manager.py z3 https://github.com/Z3Prover/z3.git --token $GITHUB_TOKEN
           fi
 

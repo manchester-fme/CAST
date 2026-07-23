@@ -47,7 +47,7 @@ jobs:
       - name: Count tests
         id: count-tests
         run: |
-          python3 scripts/coverage/count_tests.py z3 \
+          python3 src/coverage/count_tests.py z3 \
             --z3test-dir z3test \
             --output test-count.json
 
@@ -60,22 +60,15 @@ jobs:
           echo "✅ Found $TEST_COUNT tests at commit ${COMMIT_HASH:0:8}"
 
       - name: Configure storage backend
-        env:
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER }}
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          #AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          #AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          #AWS_REGION: ${{ secrets.AWS_REGION }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/configure_storage.sh >> "$GITHUB_ENV"
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
 
       - name: Check if rebuild needed
         id: check-state
         run: |
-          python3 scripts/coverage/coverage_state.py z3 check \
+          python3 src/coverage/coverage_state.py z3 check \
             --test-count ${{ steps.count-tests.outputs.test_count }} \
             --output decision.json
 
