@@ -239,7 +239,7 @@ jobs:
         if: steps.download-production-binary.outputs.artifacts_available == 'true'
         run: |
           if [ -f "artifacts/artifacts.tar.gz" ]; then
-            ./src/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build true
+            ./src/solvers/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build true
             if [ -f "cvc5/build/compile_commands.json" ]; then
               echo "✅ Headers and compile_commands.json extracted successfully"
               echo "artifacts_available=true" >> $GITHUB_OUTPUT
@@ -256,7 +256,7 @@ jobs:
         run: |
           if [ ! -f "cvc5/build/compile_commands.json" ]; then
             echo "🔨 Building cvc5 static binary as fallback to get headers and compile_commands.json"
-            ./src/cvc5/build.sh --static
+            ./src/solvers/cvc5/build.sh --static
           else
             echo "✅ Using artifacts from S3, skipping build"
           fi
@@ -334,8 +334,8 @@ jobs:
           # Max 9 jobs per solver (18 total for both z3 and cvc5) to leave space for building and management
           # Tests per job is calculated dynamically to fit within MAX_JOBS
           # To scale: change MAX_JOBS to 200+ (will automatically adjust tests_per_job)
-          ${{ github.workspace }}/src/cvc5/commit_fuzzer/run_prepare_commit_fuzzer.sh \
-            --python-script ${{ github.workspace }}/src/cvc5/commit_fuzzer/prepare_commit_fuzzer.py \
+          ${{ github.workspace }}/src/solvers/cvc5/commit_fuzzer/run_prepare_commit_fuzzer.sh \
+            --python-script ${{ github.workspace }}/src/solvers/cvc5/commit_fuzzer/prepare_commit_fuzzer.py \
             --coverage-file ../coverage_mapping.json \
             --compile-commands build \
             --output-matrix fuzzer_matrix.json \
@@ -486,7 +486,7 @@ jobs:
         if: steps.download-production-binary.outputs.binary_available == 'true'
         run: |
           if [ -f "artifacts/artifacts.tar.gz" ]; then
-            ./src/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build false
+            ./src/solvers/cvc5/extract_build_artifacts.sh artifacts/artifacts.tar.gz cvc5/build false
             if [ -f "cvc5/build/bin/cvc5" ]; then
               echo "✅ Production binary extracted successfully"
               # Remove downloaded artifact to save space
@@ -503,7 +503,7 @@ jobs:
         run: |
           if [ ! -f "cvc5/build/bin/cvc5" ]; then
             echo "🔨 Building cvc5 static binary as fallback (binary not available from S3)"
-            ./src/cvc5/build.sh --static
+            ./src/solvers/cvc5/build.sh --static
           else
             echo "✅ Using binary from S3, skipping build"
           fi
@@ -560,7 +560,7 @@ jobs:
         run: |
           if [ -f "artifacts-z3/artifacts.tar.gz" ]; then
             mkdir -p z3/build
-            ./src/z3/extract_build_artifacts.sh artifacts-z3/artifacts.tar.gz z3/build false
+            ./src/solvers/z3/extract_build_artifacts.sh artifacts-z3/artifacts.tar.gz z3/build false
             if [ -f "z3/build/z3" ]; then
               echo "✅ Z3 production binary extracted successfully"
               # Make z3 available in PATH (prepend to ensure it takes precedence over pip-installed z3-solver)
@@ -604,7 +604,7 @@ jobs:
           # Use provided stop_buffer_minutes or default 5 minutes
           STOP_BUFFER=${{ inputs.stop_buffer_minutes || 5 }}
           
-          ${{ github.workspace }}/src/cvc5/commit_fuzzer/simple_commit_fuzzer.py \
+          ${{ github.workspace }}/src/solvers/cvc5/commit_fuzzer/simple_commit_fuzzer.py \
             --tests-json '${{ toJson(matrix.tests) }}' \
             --job-id '${{ matrix.job_id }}' \
             --tests-root 'test/regress/cli' \

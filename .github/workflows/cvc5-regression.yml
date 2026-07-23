@@ -14,12 +14,12 @@ jobs:
       
       - name: Build cvc5 with coverage
         run: |
-          ./src/cvc5/build.sh --coverage
+          ./src/solvers/cvc5/build.sh --coverage
       
       - name: Run regress0 tests with timing
         run: |
           cd cvc5/build
-          ../../src/measure_time.sh ../../src/cvc5/run_regression_tests.sh regress0
+          ../../src/util/measure_time.sh ../../src/solvers/cvc5/run_regression_tests.sh regress0
 
   regress1:
     runs-on: ubuntu-latest
@@ -30,12 +30,12 @@ jobs:
       
       - name: Build cvc5 with coverage
         run: |
-          ./src/cvc5/build.sh --coverage
+          ./src/solvers/cvc5/build.sh --coverage
       
       - name: Run regress1 tests with timing
         run: |
           cd cvc5/build
-          ../../src/measure_time.sh ../../src/cvc5/run_regression_tests.sh regress1
+          ../../src/util/measure_time.sh ../../src/solvers/cvc5/run_regression_tests.sh regress1
 
   regress2:
     runs-on: ubuntu-latest
@@ -46,12 +46,12 @@ jobs:
       
       - name: Build cvc5 with coverage
         run: |
-          ./src/cvc5/build.sh --coverage
+          ./src/solvers/cvc5/build.sh --coverage
       
       - name: Run regress2 tests with timing
         run: |
           cd cvc5/build
-          ../../src/measure_time.sh ../../src/cvc5/run_regression_tests.sh regress2
+          ../../src/util/measure_time.sh ../../src/solvers/cvc5/run_regression_tests.sh regress2
 
   regress3:
     runs-on: ubuntu-latest
@@ -62,12 +62,12 @@ jobs:
       
       - name: Build cvc5 with coverage
         run: |
-          ./src/cvc5/build.sh --coverage
+          ./src/solvers/cvc5/build.sh --coverage
       
       - name: Run regress3 tests with timing
         run: |
           cd cvc5/build
-          ../../src/measure_time.sh ../../src/cvc5/run_regression_tests.sh regress3
+          ../../src/util/measure_time.sh ../../src/solvers/cvc5/run_regression_tests.sh regress3
 
   regress4:
     runs-on: ubuntu-latest
@@ -78,9 +78,9 @@ jobs:
       
       - name: Build cvc5 with coverage
         run: |
-          ./src/cvc5/build.sh --coverage
+          ./src/solvers/cvc5/build.sh --coverage
       
       - name: Run regress4 tests with timing
         run: |
           cd cvc5/build
-          ../../src/measure_time.sh ../../src/cvc5/run_regression_tests.sh regress4
+          ../../src/util/measure_time.sh ../../src/solvers/cvc5/run_regression_tests.sh regress4

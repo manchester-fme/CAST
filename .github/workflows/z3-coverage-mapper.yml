@@ -78,7 +78,7 @@ jobs:
       - name: Generate dynamic matrix
         id: generate-matrix
         run: |
-          python3 src/z3/coverage/generate_matrix.py \
+          python3 src/solvers/z3/coverage/generate_matrix.py \
             --z3test-dir z3test \
             --max-job-time 360 \
             --buffer 60 \
@@ -134,17 +134,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pip install requests
-          python3 src/download_cvc5.py $HOME/.local/bin
+          python3 src/solvers/download_cvc5.py $HOME/.local/bin
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           cvc5 --version
       
       - name: Build Z3 with coverage
         run: |
-          ./src/z3/build.sh --coverage
+          ./src/solvers/z3/build.sh --coverage
       
       - name: Run coverage analysis (tests ${{ matrix.start_index }}-${{ matrix.end_index }})
         run: |
-          ${{ github.workspace }}/src/measure_time.sh ${{ github.workspace }}/src/z3/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
+          ${{ github.workspace }}/src/util/measure_time.sh ${{ github.workspace }}/src/solvers/z3/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
       
       - name: Upload coverage mapping
         uses: actions/upload-artifact@v4
@@ -190,7 +190,7 @@ jobs:
       
       - name: Join coverage mappings
         run: |
-          python3 src/z3/coverage/join_coverage_mappings.py
+          python3 src/solvers/z3/coverage/join_coverage_mappings.py
       
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage
