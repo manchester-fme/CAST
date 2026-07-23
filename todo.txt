@@ -1,0 +1,6 @@
+[ ] Fix new env variables  
+[ ] Pull workflows out of .github (?)    
+[ ] Further minimize workflow files  
+[ ] Decentralize to forks
+[ ] Make solver independent
+
