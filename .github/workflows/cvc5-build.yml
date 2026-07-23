@@ -143,11 +143,19 @@ jobs:
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
         run: |
+            # aws s3api put-object \
+            #--bucket $CAST_BUCKET_NAME \
+            #--key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
+            #--body cvc5/build/artifacts.tar.gz \
+            #--tagging "Type=Production"
+            #
           aws s3api put-object \
             --bucket $CAST_BUCKET_NAME \
             --key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body cvc5/build/artifacts.tar.gz \
-            --tagging "Type=Production"
+            --tagging "Type=Production" \
+            --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
+            --region auto
           echo "✅ Uploaded production binary to S3"
       
       - name: Discard build (not in queue)
