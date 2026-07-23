@@ -181,7 +181,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
       
       - name: Upload final coverage mapping to S3
         run: |
@@ -195,13 +195,13 @@ jobs:
           
           # Upload with tag for lifecycle rule
           aws s3api put-object \
-            --bucket $BUCKET_NAME \
+            --bucket $CAST_BUCKET_NAME \
             --key "$S3_KEY" \
             --body coverage_mapping.json.gz \
             --tagging "Type=CoverageMapping"
           
           echo "✅ Uploaded coverage mapping to S3"
-          echo "S3 path: s3://$BUCKET_NAME/${S3_KEY}"
+          echo "S3 path: s3://$CAST_BUCKET_NAME/${S3_KEY}"
           echo "Commit hash: ${COMMIT_HASH}"
 
   # Update coverage state after successful build
@@ -226,7 +226,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
 
       - name: Update coverage state
         run: |

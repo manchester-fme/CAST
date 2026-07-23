@@ -8,10 +8,7 @@
 #   CAST_BUCKET_NAME, CAST_ACCESS_KEY_ID, CAST_SECRET_ACCESS_KEY, and (R2 only)
 #   CAST_ACCOUNT_ID, plus an optional CAST_REGION for AWS.
 #
-# All outputs are exported under CAST_*-prefixed names — including the
-# credentials and endpoint — so later steps must reference them explicitly
-# (e.g. inline AWS_ACCESS_KEY_ID=$CAST_ACCESS_KEY_ID ... aws s3 ...) rather
-# than relying on boto3/aws-cli auto-detection of standard AWS_* names.
+# All outputs are exported under CAST_*-prefixed names only.
 #
 # Selected via the CAST_STORAGE_PROVIDER repo variable: "r2" (default) or "aws".
 #
