@@ -9,7 +9,7 @@ name: Build Solver (Fork)
 #
 #   jobs:
 #     build:
-#       uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@main
+#       uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@feature/fork-solver-build-workflows
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}

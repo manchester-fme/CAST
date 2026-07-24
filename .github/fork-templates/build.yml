@@ -47,7 +47,7 @@ jobs:
 
   build:
     needs: detect-solver
-    uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@main
+    uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@feature/fork-solver-build-workflows
     with:
       solver: ${{ needs.detect-solver.outputs.solver }}
       repo_url: ${{ github.server_url }}/${{ github.repository }}
