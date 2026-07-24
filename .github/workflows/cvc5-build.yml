@@ -147,7 +147,7 @@ jobs:
               --bucket $AWS_BUCKET_NAME \
               --key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
               --body cvc5/build/artifacts.tar.gz \
-              --endpoint-url $S3_ENDPOINT_URL \
+              --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
               --region auto
             echo "✅ Uploaded production binary to S3"
       
@@ -261,7 +261,7 @@ jobs:
             --bucket $AWS_BUCKET_NAME \
             --key solvers/cvc5/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body cvc5/build/artifacts.tar.gz \
-            --endpoint-url $S3_ENDPOINT_URL
+            --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
           echo "✅ Uploaded coverage binary to S3"
       
       - name: Discard coverage build (not in queue)
