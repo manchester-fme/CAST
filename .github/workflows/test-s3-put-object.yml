@@ -1,0 +1,33 @@
+name: Test s3-put-object action
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Create test file
+        run: echo "s3-put-object test $(date -u +%FT%TZ)" > test-object.txt
+
+      - name: Upload test file
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: _ci-tests/s3-put-object/${{ github.run_id }}.txt
+          file: test-object.txt
+
+      - name: Verify object exists
+        run: aws s3api head-object --bucket "$AWS_BUCKET_NAME" --key "_ci-tests/s3-put-object/${{ github.run_id }}.txt"
+
+      - name: Clean up test object
+        if: always()
+        run: aws s3api delete-object --bucket "$AWS_BUCKET_NAME" --key "_ci-tests/s3-put-object/${{ github.run_id }}.txt"

@@ -1,0 +1,19 @@
+name: S3 put-object
+description: Uploads a file to the configured S3/R2 bucket via aws s3api put-object
+inputs:
+  key:
+    description: 'Destination object key within the bucket'
+    required: true
+  file:
+    description: 'Path to the local file to upload'
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        aws s3api put-object \
+          --bucket "$AWS_BUCKET_NAME" \
+          --key "${{ inputs.key }}" \
+          --body "${{ inputs.file }}"
+        echo "✅ Uploaded ${{ inputs.file }} to s3://$AWS_BUCKET_NAME/${{ inputs.key }}"
