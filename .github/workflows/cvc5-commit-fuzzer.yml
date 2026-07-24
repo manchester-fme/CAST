@@ -694,23 +694,25 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
-      - name: Upload bugs to S3
+      - name: Validate bugs archive exists
         if: steps.combine-bugs.outputs.bugs_found == 'true'
         run: |
           ARCHIVE_NAME="${{ steps.create-archive.outputs.archive_name }}"
-          S3_KEY="solvers/cvc5/bugs/${ARCHIVE_NAME}"
-          
           if [ ! -f "$ARCHIVE_NAME" ]; then
             echo "❌ Error: Archive file not found: $ARCHIVE_NAME"
             exit 1
           fi
-          
-          aws s3 cp \
-            ${ARCHIVE_NAME} \
-            s3://$AWS_BUCKET_NAME/${S3_KEY}
-          
-          echo "✅ Uploaded $ARCHIVE_NAME to S3"
-          echo "S3 path: s3://$AWS_BUCKET_NAME/${S3_KEY}"
+
+      - name: Upload bugs to S3
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: solvers/cvc5/bugs/${{ steps.create-archive.outputs.archive_name }}
+          file: ${{ steps.create-archive.outputs.archive_name }}
+
+      - name: Report upload summary
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        run: |
           echo "Total bugs: ${{ steps.combine-bugs.outputs.bug_count }}"
       
       - name: No bugs found
