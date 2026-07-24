@@ -142,14 +142,10 @@ jobs:
 
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
-        run: |
-            aws s3api put-object \
-              --bucket $AWS_BUCKET_NAME \
-              --key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
-              --body cvc5/build/artifacts.tar.gz \
-              --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
-              --region auto
-            echo "✅ Uploaded production binary to S3"
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          file: cvc5/build/artifacts.tar.gz
       
       - name: Discard build (not in queue)
         if: steps.check-queue.outputs.should_upload == 'false'
@@ -256,14 +252,10 @@ jobs:
       
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
-        run: |
-          aws s3api put-object \
-            --bucket $AWS_BUCKET_NAME \
-            --key solvers/cvc5/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
-            --body cvc5/build/artifacts.tar.gz \
-            --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
-            --region auto
-          echo "✅ Uploaded coverage binary to S3"
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: solvers/cvc5/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          file: cvc5/build/artifacts.tar.gz
       
       - name: Discard coverage build (not in queue)
         if: steps.check-queue-coverage.outputs.should_upload == 'false'
