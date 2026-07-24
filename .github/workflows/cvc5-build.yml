@@ -262,6 +262,7 @@ jobs:
             --key solvers/cvc5/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body cvc5/build/artifacts.tar.gz \
             --endpoint-url https://7c6df65a29da9bdb8253b0615157058c.r2.cloudflarestorage.com \
+            --region auto
           echo "✅ Uploaded coverage binary to S3"
       
       - name: Discard coverage build (not in queue)
