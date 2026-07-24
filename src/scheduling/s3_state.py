@@ -45,7 +45,7 @@ class S3StateManager:
     def __init__(self, bucket: str, solver: str, region: Optional[str] = None):
         self.bucket = bucket
         self.solver = solver
-        self.region = region or os.getenv('CAST_REGION', 'eu-north-1')
+        self.region = region or os.getenv('AWS_REGION', 'eu-north-1')
         self.base_path = f"solvers/{solver}/fuzzing-state"
         try:
             self.s3_client = build_client(region=self.region)
@@ -408,7 +408,7 @@ def get_state_manager(solver: str) -> S3StateManager:
     except StorageConfigError as e:
         raise S3StateError(str(e))
     print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
-    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('CAST_REGION', 'eu-north-1'))
+    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION', 'eu-north-1'))
 
 
 if __name__ == '__main__':

@@ -46,7 +46,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Get commit to fuzz and latest build
         id: set-outputs
@@ -211,7 +211,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -222,11 +222,11 @@ jobs:
           S3_KEY="solvers/cvc5/builds/v2/production/${LATEST_BUILD}.tar.gz"
           
           if aws s3api head-object \
-            --bucket $CAST_BUCKET_NAME \
+            --bucket $AWS_BUCKET_NAME \
             --key "$S3_KEY" >/dev/null 2>&1; then
             echo "📥 Downloading production binary for latest build: $LATEST_BUILD (for headers and compile_commands.json)"
             aws s3 cp \
-              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              s3://$AWS_BUCKET_NAME/$S3_KEY \
               artifacts/artifacts.tar.gz
             echo "artifacts_available=true" >> $GITHUB_OUTPUT
           else
@@ -265,7 +265,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -276,11 +276,11 @@ jobs:
             S3_KEY="solvers/cvc5/coverage-mappings/coverage_mapping-${COVERAGE_COMMIT}.json.gz"
             
             if aws s3api head-object \
-              --bucket $CAST_BUCKET_NAME \
+              --bucket $AWS_BUCKET_NAME \
               --key "$S3_KEY" >/dev/null 2>&1; then
               echo "📥 Downloading coverage mapping for commit: ${COVERAGE_COMMIT}"
               aws s3 cp \
-                s3://$CAST_BUCKET_NAME/$S3_KEY \
+                s3://$AWS_BUCKET_NAME/$S3_KEY \
                 coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
             else
@@ -290,7 +290,7 @@ jobs:
           else
             # Find latest coverage mapping
             echo "🔍 Finding latest coverage mapping in S3..."
-            LATEST=$(aws s3 ls s3://$CAST_BUCKET_NAME/solvers/cvc5/coverage-mappings/ \
+            LATEST=$(aws s3 ls s3://$AWS_BUCKET_NAME/solvers/cvc5/coverage-mappings/ \
               | grep "coverage_mapping-" \
               | sort -r \
               | head -n 1 \
@@ -299,7 +299,7 @@ jobs:
             if [ -n "$LATEST" ]; then
               echo "📥 Downloading latest coverage mapping: $LATEST"
               aws s3 cp \
-                s3://$CAST_BUCKET_NAME/solvers/cvc5/coverage-mappings/$LATEST \
+                s3://$AWS_BUCKET_NAME/solvers/cvc5/coverage-mappings/$LATEST \
                 coverage_mapping.json.gz
               echo "coverage_found=true" >> $GITHUB_OUTPUT
               echo "coverage_file=$LATEST" >> $GITHUB_OUTPUT
@@ -446,7 +446,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
       - name: Download latest production binary from S3
         id: download-production-binary
@@ -458,14 +458,14 @@ jobs:
           
           echo "DEBUG: Checking for binary at S3 key: $S3_KEY"
           echo "DEBUG: Latest build commit: $LATEST_BUILD"
-          echo "DEBUG: Bucket: $CAST_BUCKET_NAME"
+          echo "DEBUG: Bucket: $AWS_BUCKET_NAME"
           
           if aws s3api head-object \
-            --bucket $CAST_BUCKET_NAME \
+            --bucket $AWS_BUCKET_NAME \
             --key "$S3_KEY" 2>&1; then
             echo "✅ Binary exists in S3, downloading..."
             if aws s3 cp \
-              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              s3://$AWS_BUCKET_NAME/$S3_KEY \
               artifacts/artifacts.tar.gz; then
               echo "✅ Binary downloaded successfully"
               ls -lh artifacts/artifacts.tar.gz
@@ -477,7 +477,7 @@ jobs:
           else
             echo "WARNING: Production binary not found in S3 at key: $S3_KEY"
             echo "DEBUG: Attempting to list objects in production directory..."
-            aws s3 ls s3://$CAST_BUCKET_NAME/solvers/cvc5/builds/v2/production/ | head -5 || echo "Failed to list objects"
+            aws s3 ls s3://$AWS_BUCKET_NAME/solvers/cvc5/builds/v2/production/ | head -5 || echo "Failed to list objects"
             echo "binary_available=false" >> $GITHUB_OUTPUT
           fi
 
@@ -536,11 +536,11 @@ jobs:
           echo "DEBUG: Latest Z3 build commit: $LATEST_Z3_BUILD"
           
           if aws s3api head-object \
-            --bucket $CAST_BUCKET_NAME \
+            --bucket $AWS_BUCKET_NAME \
             --key "$S3_KEY" 2>&1; then
             echo "✅ Z3 binary exists in S3, downloading..."
             if aws s3 cp \
-              s3://$CAST_BUCKET_NAME/$S3_KEY \
+              s3://$AWS_BUCKET_NAME/$S3_KEY \
               artifacts-z3/artifacts.tar.gz; then
               echo "✅ Z3 binary downloaded successfully"
               ls -lh artifacts-z3/artifacts.tar.gz
@@ -692,7 +692,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Upload bugs to S3
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -707,10 +707,10 @@ jobs:
           
           aws s3 cp \
             ${ARCHIVE_NAME} \
-            s3://$CAST_BUCKET_NAME/${S3_KEY}
+            s3://$AWS_BUCKET_NAME/${S3_KEY}
           
           echo "✅ Uploaded $ARCHIVE_NAME to S3"
-          echo "S3 path: s3://$CAST_BUCKET_NAME/${S3_KEY}"
+          echo "S3 path: s3://$AWS_BUCKET_NAME/${S3_KEY}"
           echo "Total bugs: ${{ steps.combine-bugs.outputs.bug_count }}"
       
       - name: No bugs found
@@ -739,7 +739,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Increment fuzz count and manage schedule
         env:

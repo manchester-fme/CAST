@@ -5,7 +5,7 @@ inputs:
     description: 'Pass toJSON(secrets) from the caller'
     required: true
   storage_provider:
-    description: 'Pass vars.CAST_STORAGE_PROVIDER from the caller ("r2" or "aws")'
+    description: 'Pass vars.AWS_STORAGE_PROVIDER from the caller ("r2" or "aws")'
     required: false
 runs:
   using: composite
@@ -13,9 +13,9 @@ runs:
     - shell: bash
       env:
         ALL_SECRETS: ${{ inputs.secrets }}
-        CAST_STORAGE_PROVIDER: ${{ inputs.storage_provider }}
+        AWS_STORAGE_PROVIDER: ${{ inputs.storage_provider }}
       run: |
-        for k in CAST_BUCKET_NAME CAST_ACCOUNT_ID CAST_ACCESS_KEY_ID CAST_SECRET_ACCESS_KEY CAST_REGION; do
+        for k in AWS_BUCKET_NAME AWS_ACCOUNT_ID AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION; do
           export "$k=$(jq -r --arg k "$k" '.[$k] // ""' <<<"$ALL_SECRETS")"
         done
         ./src/util/configure_storage.sh >> "$GITHUB_ENV"

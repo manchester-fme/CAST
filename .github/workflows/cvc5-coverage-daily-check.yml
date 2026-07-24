@@ -60,7 +60,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
       - name: Check if rebuild needed
         id: check-state

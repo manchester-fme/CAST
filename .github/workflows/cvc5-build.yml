@@ -34,7 +34,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Check build queue or add manual commit
         id: set-outputs
@@ -122,7 +122,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Check if commit is still in build queue
         id: check-queue
@@ -144,13 +144,12 @@ jobs:
         if: steps.check-queue.outputs.should_upload == 'true'
         run: |
             # aws s3api put-object \
-            #--bucket $CAST_BUCKET_NAME \
+            #--bucket $AWS_BUCKET_NAME \
             #--key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             #--body cvc5/build/artifacts.tar.gz \
             #--tagging "Type=Production"
-            #
             aws s3api put-object \
-            --bucket $CAST_BUCKET_NAME \
+            --bucket $AWS_BUCKET_NAME \
             --key solvers/cvc5/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body cvc5/build/artifacts.tar.gz \
             --tagging "Type=Production" \
@@ -246,7 +245,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Check if commit is still in build queue (coverage)
         id: check-queue-coverage
@@ -265,7 +264,7 @@ jobs:
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
         run: |
           aws s3api put-object \
-            --bucket $CAST_BUCKET_NAME \
+            --bucket $AWS_BUCKET_NAME \
             --key solvers/cvc5/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz \
             --body cvc5/build/artifacts.tar.gz \
             --tagging "Type=Coverage"
@@ -300,7 +299,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Remove commit from build queue
         run: |
@@ -332,7 +331,7 @@ jobs:
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
-          storage_provider: ${{ vars.CAST_STORAGE_PROVIDER }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
       
       - name: Remove failed commit from build queue
         run: |
