@@ -9,7 +9,7 @@ name: Build Solver (Fork)
 #
 #   jobs:
 #     build:
-#       uses: manchester-fme/fmfuzz-dev/.github/workflows/build-solver-fork.yml@main
+#       uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@main
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
@@ -119,10 +119,10 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout fmfuzz-dev (build scripts + actions)
+      - name: Checkout CAST (build scripts + actions)
         uses: actions/checkout@v5
         with:
-          repository: manchester-fme/fmfuzz-dev
+          repository: manchester-fme/CAST
           ref: main
 
       - name: Clone ${{ needs.validate.outputs.solver }} fork
@@ -195,10 +195,10 @@ jobs:
     if: inputs.coverage == true
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout fmfuzz-dev (build scripts + actions)
+      - name: Checkout CAST (build scripts + actions)
         uses: actions/checkout@v5
         with:
-          repository: manchester-fme/fmfuzz-dev
+          repository: manchester-fme/CAST
           ref: main
 
       - name: Install LLVM/Clang 17

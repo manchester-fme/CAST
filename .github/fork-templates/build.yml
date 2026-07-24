@@ -1,11 +1,11 @@
-name: Build Solver (fmfuzz-dev)
+name: Build Solver (CAST)
 
 # Single shared caller template: copy this exact file, unmodified, into
 # .github/workflows/ of both your cvc5 fork and your Z3 fork. It detects
 # which solver to build from the repository name (must contain "cvc5" or
 # "z3" - true for a normal, unrenamed fork).
 #
-# See .github/fork-templates/README.md in manchester-fme/fmfuzz-dev for setup
+# See .github/fork-templates/README.md in manchester-fme/CAST for setup
 # (required repo secrets, etc).
 
 on:
@@ -47,7 +47,7 @@ jobs:
 
   build:
     needs: detect-solver
-    uses: manchester-fme/fmfuzz-dev/.github/workflows/build-solver-fork.yml@main
+    uses: manchester-fme/CAST/.github/workflows/build-solver-fork.yml@main
     with:
       solver: ${{ needs.detect-solver.outputs.solver }}
       repo_url: ${{ github.server_url }}/${{ github.repository }}

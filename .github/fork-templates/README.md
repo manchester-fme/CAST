@@ -23,8 +23,8 @@ name, which is true for a normal, unrenamed fork).
 
 The caller workflow uses `secrets: inherit`, which forwards *your fork's own*
 repository secrets to the reusable workflow - it does **not** pull secrets
-from fmfuzz-dev. Add these secrets under your fork's
-Settings -> Secrets and variables -> Actions (same values as fmfuzz-dev uses):
+from CAST. Add these secrets under your fork's
+Settings -> Secrets and variables -> Actions (same values as CAST uses):
 
 | Secret               | Required | Notes                              |
 |----------------------|----------|-------------------------------------|
@@ -34,7 +34,7 @@ Settings -> Secrets and variables -> Actions (same values as fmfuzz-dev uses):
 | `AWS_REGION`            | no  | defaults to `eu-north-1` if unset |
 | `AWS_ACCOUNT_ID`        | no  | only needed for the R2 provider |
 
-Ask a fmfuzz-dev maintainer for scoped credentials rather than reusing
+Ask a CAST maintainer for scoped credentials rather than reusing
 long-lived admin keys.
 
 ## 3. Run it
