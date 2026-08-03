@@ -17,52 +17,75 @@ name: Build Solver
 #
 # Any solver works as long as src/solvers/<solver>/collect_build_artifacts.sh
 # exists and build_script accepts --static / --static --coverage.
+#
+# solver/repo_url/build_script/binary_path default to the cvc5 production
+# values, so a no-argument run builds cvc5. Set force_run: true to build even
+# when the queue is empty and no commit_hash is given - it resolves and
+# queues the latest commit on repo_url instead of hitting skip-build.
 
 on:
   workflow_call:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts)'
-        required: true
+        required: false
         type: string
+        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build'
-        required: true
+        required: false
         type: string
+        default: https://github.com/cvc5/cvc5.git
       build_script:
         description: 'Path to the solver build script'
-        required: true
+        required: false
         type: string
+        default: ./src/solvers/cvc5/build.sh
       binary_path:
         description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: true
+        required: false
         type: string
+        default: build/bin/cvc5
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
         type: string
+      force_run:
+        description: 'Force a build even if the queue is empty and no commit_hash is given (builds the latest commit on repo_url instead of skipping)'
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts)'
-        required: true
+        required: false
         type: string
+        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build'
-        required: true
+        required: false
         type: string
+        default: https://github.com/cvc5/cvc5.git
       build_script:
         description: 'Path to the solver build script'
-        required: true
+        required: false
         type: string
+        default: ./src/solvers/cvc5/build.sh
       binary_path:
         description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: true
+        required: false
         type: string
+        default: build/bin/cvc5
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
         type: string
+      force_run:
+        description: 'Force a build even if the queue is empty and no commit_hash is given (builds the latest commit on repo_url instead of skipping)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   check-build-queue:
@@ -103,6 +126,16 @@ jobs:
             echo "is_manual_build=true" >> $GITHUB_OUTPUT
           else
             COMMIT_HASH=$(python src/scheduling/builder.py "$SOLVER")
+            if [ -z "$COMMIT_HASH" ] && [ "${{ inputs.force_run }}" = "true" ]; then
+              echo "⚡ Queue empty but force_run is set - resolving latest commit on ${{ inputs.repo_url }}"
+              COMMIT_HASH=$(git ls-remote "${{ inputs.repo_url }}" HEAD | cut -f1)
+              if [ -z "$COMMIT_HASH" ]; then
+                echo "❌ Could not resolve HEAD commit for ${{ inputs.repo_url }}"
+                exit 1
+              fi
+              echo "🔨 Forcing build of $COMMIT_HASH"
+              python src/scheduling/s3_state.py "$SOLVER" build-queue add "$COMMIT_HASH"
+            fi
             if [ -n "$COMMIT_HASH" ]; then
               echo "build_needed=true" >> $GITHUB_OUTPUT
               echo "sha=$COMMIT_HASH" >> $GITHUB_OUTPUT
