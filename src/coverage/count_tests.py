@@ -23,7 +23,7 @@ def count_cvc5_tests(build_dir: Path) -> Dict:
         Dictionary with test_count, commit_hash, and solver_version
     """
     # Import from existing coverage_mapper
-    cvc5_coverage_path = Path(__file__).parent.parent / 'cvc5' / 'coverage'
+    cvc5_coverage_path = Path(__file__).parent.parent / 'solvers' / 'cvc5' / 'coverage'
     sys.path.insert(0, str(cvc5_coverage_path))
 
     try:
@@ -70,7 +70,7 @@ def count_z3_tests(z3test_dir: Path) -> Dict:
         Dictionary with test_count, commit_hash, and solver_version
     """
     # Import from existing coverage_mapper and generate_matrix
-    z3_coverage_path = Path(__file__).parent.parent / 'z3' / 'coverage'
+    z3_coverage_path = Path(__file__).parent.parent / 'solvers' / 'z3' / 'coverage'
     sys.path.insert(0, str(z3_coverage_path))
 
     try:
