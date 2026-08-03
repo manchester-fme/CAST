@@ -5,24 +5,18 @@ name: Build Solver
 # Polls the shared S3 build-queue/fuzzing-schedule state for a given solver
 # (or builds one manually supplied commit), builds both a production and a
 # coverage-instrumented static binary, uploads them, and clears the queue
-# entry. This is the same logic previously duplicated between cvc5-build.yml
-# and z3-build.yml - those are now thin callers that supply the
-# solver-specific parameters:
+# entry. It generalizes the logic duplicated between cvc5-build.yml and
+# z3-build.yml behind a single set of parameters (solver, repo_url,
+# build_script, binary_path, commit_hash).
 #
-#   jobs:
-#     build:
-#       uses: ./.github/workflows/build.yml
-#       with:
-#         solver: cvc5
-#         repo_url: https://github.com/cvc5/cvc5.git
-#         build_script: ./src/solvers/cvc5/build.sh
-#         binary_path: build/bin/cvc5
-#         commit_hash: ${{ inputs.cvc5_commit_hash }}
-#       secrets: inherit
+# Runnable standalone - no other workflow file is required to trigger it:
+#   - From the GitHub UI/API: Actions -> Build Solver -> Run workflow, or
+#     `gh workflow run build.yml -f solver=cvc5 -f repo_url=... -f
+#     build_script=./src/solvers/cvc5/build.sh -f binary_path=build/bin/cvc5`
+#   - From another workflow: uses: ./.github/workflows/build.yml (workflow_call)
 #
-# Adding a new solver to the production pipeline means adding a caller
-# workflow with these parameters (plus a matching src/solvers/<solver>/
-# build.sh and collect_build_artifacts.sh) - no changes needed here.
+# Any solver works as long as src/solvers/<solver>/collect_build_artifacts.sh
+# exists and build_script accepts --static / --static --coverage.
 
 on:
   workflow_call:
