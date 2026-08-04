@@ -209,14 +209,14 @@ def check_if_commit_too_old(repo_url: str, commit_hash: str, token: Optional[str
     return False
 
 
-def run_manager(solver: str, repo_url: str, token: Optional[str] = None):
+def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespace: Optional[str] = None):
     print(f"=" * 80)
     print(f"🚀 Starting manager for solver: {solver}")
     print(f"   Repository: {repo_url}")
     print(f"   Token: {'***' if token else 'None'}")
     print(f"=" * 80)
-    
-    manager = get_state_manager(solver)
+
+    manager = get_state_manager(solver, namespace=namespace)
     print(f"📂 State manager initialized for solver: {solver}")
     
     last_checked = manager.get_last_checked_commit()
@@ -437,11 +437,12 @@ if __name__ == '__main__':
     parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
     parser.add_argument('repo_url', help='Repository URL')
     parser.add_argument('--token', help='GitHub token', default=os.getenv('GITHUB_TOKEN'))
-    
+    parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
+
     args = parser.parse_args()
-    
+
     try:
-        run_manager(args.solver, args.repo_url, args.token)
+        run_manager(args.solver, args.repo_url, args.token, namespace=args.namespace)
     except S3StateError as e:
         print(f"❌ S3 State Error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -22,6 +22,20 @@ name: Build Solver
 # values, so a no-argument run builds cvc5. Set force_run: true to build even
 # when the queue is empty and no commit_hash is given - it resolves and
 # queues the latest commit on repo_url instead of hitting skip-build.
+#
+# Calling from a fork: set `namespace` so the fork's build-queue state and
+# uploaded artifacts are isolated under their own S3 prefix instead of
+# colliding with the production cvc5/z3 state (which always runs with no
+# namespace):
+#
+#   jobs:
+#     cast-build:
+#       uses: manchester-fme/CAST/.github/workflows/build.yml@main
+#       with:
+#         solver: cvc5
+#         repo_url: ${{ github.server_url }}/${{ github.repository }}
+#         namespace: fork-${{ github.repository_owner }}
+#       secrets: inherit
 
 on:
   workflow_call:
@@ -55,6 +69,11 @@ on:
         required: false
         type: boolean
         default: false
+      namespace:
+        description: 'Optional: isolates build-queue state and uploaded artifacts under this prefix instead of the shared production state (use for forks)'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -86,6 +105,11 @@ on:
         required: false
         type: boolean
         default: false
+      namespace:
+        description: 'Optional: isolates build-queue state and uploaded artifacts under this prefix instead of the shared production state (use for forks)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   check-build-queue:
@@ -117,15 +141,20 @@ jobs:
         id: set-outputs
         run: |
           SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           if [ -n "${{ inputs.commit_hash }}" ]; then
             COMMIT_HASH="${{ inputs.commit_hash }}"
             echo "🔨 Adding provided commit to build queue: $COMMIT_HASH"
-            python src/scheduling/s3_state.py "$SOLVER" build-queue add "$COMMIT_HASH"
+            python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue add "$COMMIT_HASH"
             echo "build_needed=true" >> $GITHUB_OUTPUT
             echo "sha=$COMMIT_HASH" >> $GITHUB_OUTPUT
             echo "is_manual_build=true" >> $GITHUB_OUTPUT
           else
-            COMMIT_HASH=$(python src/scheduling/builder.py "$SOLVER")
+            COMMIT_HASH=$(python src/scheduling/builder.py "$SOLVER" "${NAMESPACE_ARGS[@]}")
             if [ -z "$COMMIT_HASH" ] && [ "${{ inputs.force_run }}" = "true" ]; then
               echo "⚡ Queue empty but force_run is set - resolving latest commit on ${{ inputs.repo_url }}"
               COMMIT_HASH=$(git ls-remote "${{ inputs.repo_url }}" HEAD | cut -f1)
@@ -134,7 +163,7 @@ jobs:
                 exit 1
               fi
               echo "🔨 Forcing build of $COMMIT_HASH"
-              python src/scheduling/s3_state.py "$SOLVER" build-queue add "$COMMIT_HASH"
+              python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue add "$COMMIT_HASH"
             fi
             if [ -n "$COMMIT_HASH" ]; then
               echo "build_needed=true" >> $GITHUB_OUTPUT
@@ -217,9 +246,14 @@ jobs:
         id: check-queue
         run: |
           SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
           # Capture both stdout and stderr, but extract only "true" or "false" from stdout
-          CHECK_OUTPUT=$(python src/scheduling/s3_state.py "$SOLVER" build-queue check "$COMMIT_HASH" 2>&1)
+          CHECK_OUTPUT=$(python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue check "$COMMIT_HASH" 2>&1)
           IN_QUEUE=$(echo "$CHECK_OUTPUT" | grep -E "^(true|false)$" | tail -1)
           if [ "$IN_QUEUE" = "true" ]; then
             echo "✅ Commit $COMMIT_HASH is still in build queue, will upload"
@@ -230,11 +264,17 @@ jobs:
             echo "should_upload=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Compute S3 upload key
+        id: upload-key
+        run: |
+          NAMESPACE="${{ inputs.namespace }}"
+          echo "key=solvers/${{ inputs.solver }}/${NAMESPACE:+$NAMESPACE/}builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
         uses: ./.github/actions/s3-put-object
         with:
-          key: solvers/${{ inputs.solver }}/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          key: ${{ steps.upload-key.outputs.key }}
           file: ${{ inputs.solver }}/build/artifacts.tar.gz
 
       - name: Discard build (not in queue)
@@ -332,8 +372,13 @@ jobs:
         id: check-queue-coverage
         run: |
           SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
-          IN_QUEUE=$(python src/scheduling/s3_state.py "$SOLVER" build-queue check "$COMMIT_HASH" 2>&1 | tail -1)
+          IN_QUEUE=$(python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue check "$COMMIT_HASH" 2>&1 | tail -1)
           if [ "$IN_QUEUE" = "true" ]; then
             echo "✅ Commit $COMMIT_HASH is still in build queue, will upload"
             echo "should_upload=true" >> $GITHUB_OUTPUT
@@ -342,11 +387,17 @@ jobs:
             echo "should_upload=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Compute S3 upload key (coverage)
+        id: upload-key-coverage
+        run: |
+          NAMESPACE="${{ inputs.namespace }}"
+          echo "key=solvers/${{ inputs.solver }}/${NAMESPACE:+$NAMESPACE/}builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
         uses: ./.github/actions/s3-put-object
         with:
-          key: solvers/${{ inputs.solver }}/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz
+          key: ${{ steps.upload-key-coverage.outputs.key }}
           file: ${{ inputs.solver }}/build/artifacts.tar.gz
 
       - name: Discard coverage build (not in queue)
@@ -382,8 +433,13 @@ jobs:
 
       - name: Remove commit from build queue
         run: |
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
-          python src/scheduling/s3_state.py ${{ inputs.solver }} build-queue remove "$COMMIT_HASH"
+          python src/scheduling/s3_state.py ${{ inputs.solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
           echo "✅ Removed $COMMIT_HASH from build queue (both binaries uploaded)"
 
   remove-from-queue-on-failure:
@@ -414,9 +470,14 @@ jobs:
 
       - name: Remove failed commit from build queue
         run: |
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "❌ Build failed for commit $COMMIT_HASH, removing from queue to prevent infinite retries"
-          python src/scheduling/s3_state.py ${{ inputs.solver }} build-queue remove "$COMMIT_HASH"
+          python src/scheduling/s3_state.py ${{ inputs.solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
           echo "✅ Removed failed commit $COMMIT_HASH from build queue"
 
   skip-build:

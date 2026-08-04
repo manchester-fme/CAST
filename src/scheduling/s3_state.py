@@ -42,11 +42,12 @@ DEFAULT_STATE_VERSION = "v2"
 
 
 class S3StateManager:
-    def __init__(self, bucket: str, solver: str, region: Optional[str] = None):
+    def __init__(self, bucket: str, solver: str, region: Optional[str] = None, namespace: Optional[str] = None):
         self.bucket = bucket
         self.solver = solver
         self.region = region or os.getenv('AWS_REGION', 'eu-north-1')
-        self.base_path = f"solvers/{solver}/fuzzing-state"
+        self.namespace = namespace
+        self.base_path = f"solvers/{solver}/{namespace + '/' if namespace else ''}fuzzing-state"
         try:
             self.s3_client = build_client(region=self.region)
         except StorageConfigError as e:
@@ -354,7 +355,7 @@ class S3StateManager:
         try:
             from botocore.exceptions import ClientError
             
-            prefix = f"solvers/{self.solver}/builds/{version}/production/"
+            prefix = f"solvers/{self.solver}/{self.namespace + '/' if self.namespace else ''}builds/{version}/production/"
             
             # List all objects in the production builds directory
             paginator = self.s3_client.get_paginator('list_objects_v2')
@@ -402,20 +403,21 @@ class S3StateManager:
             return None
 
 
-def get_state_manager(solver: str) -> S3StateManager:
+def get_state_manager(solver: str, namespace: Optional[str] = None) -> S3StateManager:
     try:
         bucket = get_bucket()
     except StorageConfigError as e:
         raise S3StateError(str(e))
     print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
-    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION', 'eu-north-1'))
+    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION', 'eu-north-1'), namespace=namespace)
 
 
 if __name__ == '__main__':
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='S3 State Management CLI')
     parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
+    parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
     
     # Build queue commands (defaults to v2)
@@ -468,7 +470,7 @@ if __name__ == '__main__':
         sys.exit(1)
     
     try:
-        manager = get_state_manager(args.solver)
+        manager = get_state_manager(args.solver, namespace=args.namespace)
         
         if args.command == 'build-queue':
             if args.action == 'add':

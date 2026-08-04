@@ -16,6 +16,19 @@ name: Manager
 #
 # solver/repo_url default to the cvc5 production values, so a no-argument run
 # manages cvc5.
+#
+# Calling from a fork: set `namespace` so the fork's build-queue/fuzzing-
+# schedule state is isolated under its own S3 prefix instead of colliding
+# with the production cvc5/z3 state (which always runs with no namespace):
+#
+#   jobs:
+#     cast-fuzz:
+#       uses: manchester-fme/CAST/.github/workflows/manager.yml@main
+#       with:
+#         solver: cvc5
+#         repo_url: ${{ github.server_url }}/${{ github.repository }}
+#         namespace: fork-${{ github.repository_owner }}
+#       secrets: inherit
 
 on:
   workflow_call:
@@ -34,6 +47,11 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
+      namespace:
+        description: 'Optional: isolates state under this prefix instead of the shared production state (use for forks)'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -50,6 +68,11 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
+      namespace:
+        description: 'Optional: isolates state under this prefix instead of the shared production state (use for forks)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   manager:
@@ -79,18 +102,23 @@ jobs:
         run: |
           SOLVER="${{ inputs.solver }}"
           REPO_URL="${{ inputs.repo_url }}"
+          NAMESPACE="${{ inputs.namespace }}"
+          NAMESPACE_ARGS=()
+          if [ -n "$NAMESPACE" ]; then
+            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          fi
           if [ -n "${{ inputs.commit_hash }}" ]; then
             # Manual trigger: check for C++ changes before adding to build queue
             COMMIT_HASH="${{ inputs.commit_hash }}"
             if python3 src/scheduling/detect_cpp_changes.py "$REPO_URL" "$COMMIT_HASH" --token $GITHUB_TOKEN; then
               echo "✅ Commit $COMMIT_HASH has C++ changes, adding to build queue and fuzzing schedule"
-              python3 src/scheduling/s3_state.py "$SOLVER" build-queue add "$COMMIT_HASH"
-              python3 src/scheduling/s3_state.py "$SOLVER" fuzzing-schedule add "$COMMIT_HASH"
+              python3 src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue add "$COMMIT_HASH"
+              python3 src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" fuzzing-schedule add "$COMMIT_HASH"
             else
               echo "❌ Commit $COMMIT_HASH has no C++ changes, skipping"
               exit 1
             fi
           else
             # Scheduled run: check commits and update queues
-            python3 src/scheduling/manager.py "$SOLVER" "$REPO_URL" --token $GITHUB_TOKEN
+            python3 src/scheduling/manager.py "$SOLVER" "$REPO_URL" --token $GITHUB_TOKEN "${NAMESPACE_ARGS[@]}"
           fi

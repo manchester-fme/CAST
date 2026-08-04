@@ -11,10 +11,10 @@ sys.path.insert(0, src_dir)
 from scheduling.s3_state import get_state_manager, S3StateError, DEFAULT_STATE_VERSION
 
 
-def get_next_commit_to_build(solver: str) -> Optional[str]:
+def get_next_commit_to_build(solver: str, namespace: Optional[str] = None) -> Optional[str]:
     """Get the next commit from build queue. Returns None if queue is empty.
     Uses LIFO (Last In, First Out) to build latest commits first."""
-    manager = get_state_manager(solver)
+    manager = get_state_manager(solver, namespace=namespace)
     build_queue_filename = manager._get_versioned_filename('build-queue.json', DEFAULT_STATE_VERSION)
     queue = manager.read_state(build_queue_filename, default={'queue': []})
     queue_list = queue.get('queue', [])
@@ -22,10 +22,10 @@ def get_next_commit_to_build(solver: str) -> Optional[str]:
     return queue_list[-1] if queue_list else None
 
 
-def run_builder(solver: str) -> Optional[str]:
+def run_builder(solver: str, namespace: Optional[str] = None) -> Optional[str]:
     """Run builder check - returns commit hash if available, None otherwise."""
     try:
-        commit = get_next_commit_to_build(solver)
+        commit = get_next_commit_to_build(solver, namespace=namespace)
         if commit:
             print(f"✅ Found commit in queue: {commit}", file=sys.stderr)
             return commit
@@ -46,10 +46,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Builder job - check build queue')
     parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
-    
+    parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
+
     args = parser.parse_args()
-    
-    commit = run_builder(args.solver)
+
+    commit = run_builder(args.solver, namespace=args.namespace)
     
     if args.json:
         import json
