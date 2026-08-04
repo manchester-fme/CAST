@@ -23,10 +23,18 @@ name: Build Solver
 # when the queue is empty and no commit_hash is given - it resolves and
 # queues the latest commit on repo_url instead of hitting skip-build.
 #
-# Calling from a fork: set `namespace` so the fork's build-queue state and
-# uploaded artifacts are isolated under their own S3 prefix instead of
-# colliding with the production cvc5/z3 state (which always runs with no
-# namespace):
+# State (build-queue and uploaded artifacts) is always namespaced by the
+# calling repository (`github.repository`, e.g. `manchester-fme/CAST` or
+# `someuser/cvc5`) - not just for forks, for every caller, including CAST's
+# own runs. There is no unnamespaced/"default" state and nothing to
+# configure: `github.repository` comes from the Actions runtime itself, not
+# a workflow input, so it can't be forgotten or spoofed. A fork's state can
+# therefore never collide with another caller's, but note that a no-argument
+# run of this workflow from within CAST itself manages state under CAST's
+# own namespace, not whatever bare/unnamespaced path an older direct caller
+# (e.g. cvc5-build.yml) might use.
+#
+# Calling from a fork is just:
 #
 #   jobs:
 #     cast-build:
@@ -34,7 +42,6 @@ name: Build Solver
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
-#         namespace: fork-${{ github.repository_owner }}
 #       secrets: inherit
 
 on:
@@ -69,11 +76,6 @@ on:
         required: false
         type: boolean
         default: false
-      namespace:
-        description: 'Optional: isolates build-queue state and uploaded artifacts under this prefix instead of the shared production state (use for forks)'
-        required: false
-        type: string
-        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -105,11 +107,6 @@ on:
         required: false
         type: boolean
         default: false
-      namespace:
-        description: 'Optional: isolates build-queue state and uploaded artifacts under this prefix instead of the shared production state (use for forks)'
-        required: false
-        type: string
-        default: ''
 
 jobs:
   check-build-queue:
@@ -141,11 +138,8 @@ jobs:
         id: set-outputs
         run: |
           SOLVER="${{ inputs.solver }}"
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           if [ -n "${{ inputs.commit_hash }}" ]; then
             COMMIT_HASH="${{ inputs.commit_hash }}"
             echo "🔨 Adding provided commit to build queue: $COMMIT_HASH"
@@ -246,11 +240,8 @@ jobs:
         id: check-queue
         run: |
           SOLVER="${{ inputs.solver }}"
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
           # Capture both stdout and stderr, but extract only "true" or "false" from stdout
           CHECK_OUTPUT=$(python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue check "$COMMIT_HASH" 2>&1)
@@ -267,8 +258,8 @@ jobs:
       - name: Compute S3 upload key
         id: upload-key
         run: |
-          NAMESPACE="${{ inputs.namespace }}"
-          echo "key=solvers/${{ inputs.solver }}/${NAMESPACE:+$NAMESPACE/}builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          NAMESPACE="${{ github.repository }}"
+          echo "key=solvers/${{ inputs.solver }}/$NAMESPACE/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
@@ -372,11 +363,8 @@ jobs:
         id: check-queue-coverage
         run: |
           SOLVER="${{ inputs.solver }}"
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
           IN_QUEUE=$(python src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue check "$COMMIT_HASH" 2>&1 | tail -1)
           if [ "$IN_QUEUE" = "true" ]; then
@@ -390,8 +378,8 @@ jobs:
       - name: Compute S3 upload key (coverage)
         id: upload-key-coverage
         run: |
-          NAMESPACE="${{ inputs.namespace }}"
-          echo "key=solvers/${{ inputs.solver }}/${NAMESPACE:+$NAMESPACE/}builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          NAMESPACE="${{ github.repository }}"
+          echo "key=solvers/${{ inputs.solver }}/$NAMESPACE/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
@@ -433,11 +421,8 @@ jobs:
 
       - name: Remove commit from build queue
         run: |
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           python src/scheduling/s3_state.py ${{ inputs.solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
           echo "✅ Removed $COMMIT_HASH from build queue (both binaries uploaded)"
@@ -470,11 +455,8 @@ jobs:
 
       - name: Remove failed commit from build queue
         run: |
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "❌ Build failed for commit $COMMIT_HASH, removing from queue to prevent infinite retries"
           python src/scheduling/s3_state.py ${{ inputs.solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"

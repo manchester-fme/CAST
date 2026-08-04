@@ -15,11 +15,20 @@ name: Manager
 #   - From another workflow: uses: ./.github/workflows/manager.yml (workflow_call)
 #
 # solver/repo_url default to the cvc5 production values, so a no-argument run
-# manages cvc5.
+# manages cvc5 - but see the namespacing note below: which cvc5 state it
+# manages depends on who's calling.
 #
-# Calling from a fork: set `namespace` so the fork's build-queue/fuzzing-
-# schedule state is isolated under its own S3 prefix instead of colliding
-# with the production cvc5/z3 state (which always runs with no namespace):
+# State is always namespaced by the calling repository (`github.repository`,
+# e.g. `manchester-fme/CAST` or `someuser/cvc5`) - not just for forks, for
+# every caller, including CAST's own runs. There is no unnamespaced/"default"
+# state and nothing to configure: `github.repository` comes from the Actions
+# runtime itself, not a workflow input, so it can't be forgotten or spoofed.
+# This means a fork's state can never collide with another caller's, and a
+# no-argument run of this workflow from within CAST itself manages state
+# under CAST's own namespace, not whatever bare/unnamespaced path an older
+# direct caller (e.g. cvc5-manager.yml) might use.
+#
+# Calling from a fork is just:
 #
 #   jobs:
 #     cast-fuzz:
@@ -27,7 +36,6 @@ name: Manager
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
-#         namespace: fork-${{ github.repository_owner }}
 #       secrets: inherit
 
 on:
@@ -47,11 +55,6 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
-      namespace:
-        description: 'Optional: isolates state under this prefix instead of the shared production state (use for forks)'
-        required: false
-        type: string
-        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -68,11 +71,6 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
-      namespace:
-        description: 'Optional: isolates state under this prefix instead of the shared production state (use for forks)'
-        required: false
-        type: string
-        default: ''
 
 jobs:
   manager:
@@ -102,11 +100,8 @@ jobs:
         run: |
           SOLVER="${{ inputs.solver }}"
           REPO_URL="${{ inputs.repo_url }}"
-          NAMESPACE="${{ inputs.namespace }}"
-          NAMESPACE_ARGS=()
-          if [ -n "$NAMESPACE" ]; then
-            NAMESPACE_ARGS=(--namespace "$NAMESPACE")
-          fi
+          NAMESPACE="${{ github.repository }}"
+          NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           if [ -n "${{ inputs.commit_hash }}" ]; then
             # Manual trigger: check for C++ changes before adding to build queue
             COMMIT_HASH="${{ inputs.commit_hash }}"
