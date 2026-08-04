@@ -5,7 +5,13 @@ inputs:
     description: 'Pass toJSON(secrets) from the caller'
     required: true
   storage_provider:
-    description: 'Pass vars.AWS_STORAGE_PROVIDER from the caller ("r2" or "aws")'
+    description: 'Pass vars.AWS_STORAGE_PROVIDER from the caller ("r2", "aws", or "r2-broker")'
+    required: false
+  r2_broker_function_url:
+    description: 'r2-broker only: the broker Lambda Function URL. Not a secret - baked in by the calling reusable workflow.'
+    required: false
+  r2_broker_role_arn:
+    description: 'r2-broker only: IAM role ARN to assume via OIDC. Not a secret - baked in by the calling reusable workflow.'
     required: false
 runs:
   using: composite
@@ -14,6 +20,8 @@ runs:
       env:
         ALL_SECRETS: ${{ inputs.secrets }}
         AWS_STORAGE_PROVIDER: ${{ inputs.storage_provider }}
+        R2_BROKER_FUNCTION_URL: ${{ inputs.r2_broker_function_url }}
+        R2_BROKER_ROLE_ARN: ${{ inputs.r2_broker_role_arn }}
       run: |
         for k in AWS_BUCKET_NAME AWS_ACCOUNT_ID AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION; do
           export "$k=$(jq -r --arg k "$k" '.[$k] // ""' <<<"$ALL_SECRETS")"

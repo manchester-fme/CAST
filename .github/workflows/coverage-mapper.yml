@@ -220,6 +220,8 @@ jobs:
   # Join all coverage mappings and create final artifact
   join-mappings:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     needs: [discover-tests, coverage-analysis]
     outputs:
       commit_hash: ${{ steps.get-commit.outputs.commit_hash }}
@@ -258,6 +260,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Prepare coverage mapping upload
         id: prepare-upload
@@ -283,6 +287,8 @@ jobs:
   # Update coverage state after successful build
   update-state:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     needs: [discover-tests, join-mappings]
     if: success()
 
@@ -303,6 +309,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Update coverage state
         run: |

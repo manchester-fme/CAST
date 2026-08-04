@@ -50,8 +50,8 @@ class CoverageStateManager:
         self.namespace = namespace
         self.s3_key = f"{namespace + '/' if namespace else ''}solvers/{solver}/coverage-state/{self.STATE_FILE_NAME}"
 
-        # Initialize S3-compatible client (AWS S3 or Cloudflare R2, via STORAGE_PROVIDER)
-        self.s3_client = build_client(region=region)
+        # Initialize S3-compatible client (AWS S3, Cloudflare R2, or the r2-broker shim, via STORAGE_PROVIDER)
+        self.s3_client = build_client(region=region, namespace=namespace)
 
     def get_state(self) -> Optional[Dict]:
         """

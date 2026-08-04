@@ -83,6 +83,8 @@ on:
 jobs:
   check-latest-build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     outputs:
       fuzzing_needed: ${{ steps.set-outputs.outputs.fuzzing_needed }}
       sha: ${{ steps.set-outputs.outputs.sha }}
@@ -108,6 +110,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Get commit to fuzz and latest build
         id: set-outputs
@@ -202,6 +206,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -275,6 +280,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -286,9 +293,19 @@ jobs:
           LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
           S3_KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${LATEST_BUILD}.tar.gz"
 
-          if aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            HEAD_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh head "$NAMESPACE" "$S3_KEY" || HEAD_OK=1
+          else
+            HEAD_OK=0; aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1 || HEAD_OK=1
+          fi
+
+          if [ "$HEAD_OK" = "0" ]; then
             echo "📥 Downloading production binary for latest build: $LATEST_BUILD (for headers and compile_commands.json)"
-            aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz
+            if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+              $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh get "$NAMESPACE" "$S3_KEY" artifacts/artifacts.tar.gz
+            else
+              aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz
+            fi
             echo "artifacts_available=true" >> $GITHUB_OUTPUT
           else
             echo "WARNING: Production binary not found in S3 for $LATEST_BUILD, will build as fallback"
@@ -329,6 +346,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -336,12 +355,23 @@ jobs:
           SOLVER="${{ inputs.solver }}"
           NAMESPACE="${{ github.repository }}"
           PREFIX="$NAMESPACE/solvers/$SOLVER/coverage-mappings"
+          BROKER="${AWS_STORAGE_PROVIDER:-}"
+
           if [ -n "${{ inputs.coverage_commit_hash }}" ]; then
             COVERAGE_COMMIT="${{ inputs.coverage_commit_hash }}"
             S3_KEY="$PREFIX/coverage_mapping-${COVERAGE_COMMIT}.json.gz"
-            if aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+            if [ "$BROKER" = "r2-broker" ]; then
+              HEAD_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh head "$NAMESPACE" "$S3_KEY" || HEAD_OK=1
+            else
+              HEAD_OK=0; aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1 || HEAD_OK=1
+            fi
+            if [ "$HEAD_OK" = "0" ]; then
               echo "📥 Downloading coverage mapping for commit: ${COVERAGE_COMMIT}"
-              aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY coverage_mapping.json.gz
+              if [ "$BROKER" = "r2-broker" ]; then
+                $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh get "$NAMESPACE" "$S3_KEY" coverage_mapping.json.gz
+              else
+                aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY coverage_mapping.json.gz
+              fi
               echo "coverage_found=true" >> $GITHUB_OUTPUT
             else
               echo "❌ Coverage mapping not found for commit: ${COVERAGE_COMMIT}"
@@ -349,14 +379,27 @@ jobs:
             fi
           else
             echo "🔍 Finding latest coverage mapping in S3..."
-            LATEST=$(aws s3 ls s3://$AWS_BUCKET_NAME/$PREFIX/ \
-              | grep "coverage_mapping-" \
-              | sort -r \
-              | head -n 1 \
-              | awk '{print $4}' || echo "")
+            if [ "$BROKER" = "r2-broker" ]; then
+              $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh list "$NAMESPACE" "$PREFIX/" listing.xml
+              LATEST=$(grep -oP '<Key>\K[^<]+' listing.xml \
+                | grep "coverage_mapping-" \
+                | sed 's#.*/##' \
+                | sort -r \
+                | head -n 1 || echo "")
+            else
+              LATEST=$(aws s3 ls s3://$AWS_BUCKET_NAME/$PREFIX/ \
+                | grep "coverage_mapping-" \
+                | sort -r \
+                | head -n 1 \
+                | awk '{print $4}' || echo "")
+            fi
             if [ -n "$LATEST" ]; then
               echo "📥 Downloading latest coverage mapping: $LATEST"
-              aws s3 cp s3://$AWS_BUCKET_NAME/$PREFIX/$LATEST coverage_mapping.json.gz
+              if [ "$BROKER" = "r2-broker" ]; then
+                $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh get "$NAMESPACE" "$PREFIX/$LATEST" coverage_mapping.json.gz
+              else
+                aws s3 cp s3://$AWS_BUCKET_NAME/$PREFIX/$LATEST coverage_mapping.json.gz
+              fi
               echo "coverage_found=true" >> $GITHUB_OUTPUT
               echo "coverage_file=$LATEST" >> $GITHUB_OUTPUT
             else
@@ -426,6 +469,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
 
     steps:
       - name: Record job start time
@@ -476,6 +520,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Fetch oracle binary from S3
         id: fetch-oracle
@@ -502,12 +548,26 @@ jobs:
 
           mkdir -p artifacts-oracle
           S3_KEY="solvers/$ORACLE_SOLVER/builds/v2/production/${LATEST_ORACLE_BUILD}.tar.gz"
-          if ! aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+          # Oracle data is always the real, unnamespaced production build -
+          # readable by any caller regardless of namespace (see
+          # infra/r2-broker/lambda_function.py), so the broker calls below
+          # pass an empty namespace deliberately, not github.repository.
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            HEAD_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh head "" "$S3_KEY" || HEAD_OK=1
+          else
+            HEAD_OK=0; aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1 || HEAD_OK=1
+          fi
+          if [ "$HEAD_OK" != "0" ]; then
             echo "WARNING: $ORACLE_SOLVER production binary not found in S3 at key: $S3_KEY"
             echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          if ! aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts-oracle/artifacts.tar.gz; then
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            GET_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh get "" "$S3_KEY" artifacts-oracle/artifacts.tar.gz || GET_OK=1
+          else
+            GET_OK=0; aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts-oracle/artifacts.tar.gz || GET_OK=1
+          fi
+          if [ "$GET_OK" != "0" ]; then
             echo "❌ $ORACLE_SOLVER binary download failed"
             echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
             exit 0
@@ -564,12 +624,22 @@ jobs:
           S3_KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${LATEST_BUILD}.tar.gz"
 
           mkdir -p artifacts
-          if ! aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            HEAD_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh head "$NAMESPACE" "$S3_KEY" || HEAD_OK=1
+          else
+            HEAD_OK=0; aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1 || HEAD_OK=1
+          fi
+          if [ "$HEAD_OK" != "0" ]; then
             echo "WARNING: Production binary not found in S3 at key: $S3_KEY"
             echo "sut_binary_available=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          if ! aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz; then
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            GET_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh get "$NAMESPACE" "$S3_KEY" artifacts/artifacts.tar.gz || GET_OK=1
+          else
+            GET_OK=0; aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz || GET_OK=1
+          fi
+          if [ "$GET_OK" != "0" ]; then
             echo "❌ Binary download failed"
             echo "sut_binary_available=false" >> $GITHUB_OUTPUT
             exit 0
@@ -688,6 +758,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -744,6 +815,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Validate bugs archive exists
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -775,6 +848,8 @@ jobs:
     needs: [check-latest-build, commit-fuzzer, collect-bugs]
     if: always() && needs.commit-fuzzer.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
 
     steps:
       - name: Checkout
@@ -793,6 +868,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Increment fuzz count and manage schedule
         env:

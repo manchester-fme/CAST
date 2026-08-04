@@ -45,6 +45,8 @@ on:
 jobs:
   check-rebuild-needed:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     outputs:
       should_rebuild: ${{ steps.check-state.outputs.should_rebuild }}
       reason: ${{ steps.check-state.outputs.reason }}
@@ -116,6 +118,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
 
       - name: Check if rebuild needed
         id: check-state

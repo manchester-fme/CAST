@@ -49,7 +49,7 @@ class S3StateManager:
         self.namespace = namespace
         self.base_path = f"{namespace + '/' if namespace else ''}solvers/{solver}/fuzzing-state"
         try:
-            self.s3_client = build_client(region=self.region)
+            self.s3_client = build_client(region=self.region, namespace=self.namespace)
         except StorageConfigError as e:
             raise S3StateError(str(e))
         except NoCredentialsError:
