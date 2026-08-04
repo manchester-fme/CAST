@@ -23,10 +23,12 @@ name: Manager
 # every caller, including CAST's own runs. There is no unnamespaced/"default"
 # state and nothing to configure: `github.repository` comes from the Actions
 # runtime itself, not a workflow input, so it can't be forgotten or spoofed.
-# This means a fork's state can never collide with another caller's, and a
-# no-argument run of this workflow from within CAST itself manages state
-# under CAST's own namespace, not whatever bare/unnamespaced path an older
-# direct caller (e.g. cvc5-manager.yml) might use.
+# The namespace is the top-level prefix in the bucket (e.g.
+# `manchester-fme/CAST/solvers/cvc5/fuzzing-state/...`), so every caller gets
+# its own directory and a fork's state can never collide with another
+# caller's. A no-argument run of this workflow from within CAST itself
+# manages state under CAST's own namespace, not whatever bare/unnamespaced
+# path an older direct caller (e.g. cvc5-manager.yml) might use.
 #
 # Calling from a fork is just:
 #

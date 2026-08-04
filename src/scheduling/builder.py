@@ -44,7 +44,7 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Builder job - check build queue')
-    parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
+    parser.add_argument('solver', help='Solver name (any value with a src/solvers/<solver> directory)')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
 

@@ -28,11 +28,14 @@ name: Build Solver
 # `someuser/cvc5`) - not just for forks, for every caller, including CAST's
 # own runs. There is no unnamespaced/"default" state and nothing to
 # configure: `github.repository` comes from the Actions runtime itself, not
-# a workflow input, so it can't be forgotten or spoofed. A fork's state can
-# therefore never collide with another caller's, but note that a no-argument
-# run of this workflow from within CAST itself manages state under CAST's
-# own namespace, not whatever bare/unnamespaced path an older direct caller
-# (e.g. cvc5-build.yml) might use.
+# a workflow input, so it can't be forgotten or spoofed. The namespace is the
+# top-level prefix in the bucket (e.g.
+# `manchester-fme/CAST/solvers/cvc5/builds/v2/production/...`), so every
+# caller gets its own directory and a fork's state can never collide with
+# another caller's. A no-argument run of this workflow from within CAST
+# itself manages state under CAST's own namespace, not whatever
+# bare/unnamespaced path an older direct caller (e.g. cvc5-build.yml) might
+# use.
 #
 # Calling from a fork is just:
 #
@@ -259,7 +262,7 @@ jobs:
         id: upload-key
         run: |
           NAMESPACE="${{ github.repository }}"
-          echo "key=solvers/${{ inputs.solver }}/$NAMESPACE/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "key=$NAMESPACE/solvers/${{ inputs.solver }}/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
@@ -379,7 +382,7 @@ jobs:
         id: upload-key-coverage
         run: |
           NAMESPACE="${{ github.repository }}"
-          echo "key=solvers/${{ inputs.solver }}/$NAMESPACE/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "key=$NAMESPACE/solvers/${{ inputs.solver }}/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
