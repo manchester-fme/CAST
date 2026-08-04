@@ -12,7 +12,7 @@ A third provider, "r2-broker", covers callers (e.g. a fork's own Actions
 run) that have no static credential at all: it returns a boto3-client-shaped
 shim (BrokerS3Client, see src/util/r2_broker_client.py) that exchanges the
 job's GitHub OIDC token for R2 presigned URLs via CAST's broker Lambda
-(infra/r2-broker/). Object data still flows straight to/from R2 - AWS is
+(src/infra/r2-broker/). Object data still flows straight to/from R2 - AWS is
 only used to verify identity and hand back a signed URL.
 
 Environment variables (all set by src/configure_storage.sh, except the

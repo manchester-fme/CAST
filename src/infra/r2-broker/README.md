@@ -3,7 +3,7 @@
 Lets any GitHub Actions run — including forks CAST doesn't control — read
 and write CAST's R2 bucket without ever holding a static credential. See
 the module docstrings in `lambda_function.py` and
-`../../src/util/r2_broker_client.py` for the full design rationale; this
+`../../util/r2_broker_client.py` for the full design rationale; this
 file is just the setup steps.
 
 Nothing here is CAST-repo config — it's all AWS/Cloudflare account setup,

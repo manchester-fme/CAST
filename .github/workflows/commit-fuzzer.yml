@@ -110,8 +110,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Get commit to fuzz and latest build
         id: set-outputs
@@ -280,8 +280,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -346,8 +346,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -520,8 +520,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Fetch oracle binary from S3
         id: fetch-oracle
@@ -550,7 +550,7 @@ jobs:
           S3_KEY="solvers/$ORACLE_SOLVER/builds/v2/production/${LATEST_ORACLE_BUILD}.tar.gz"
           # Oracle data is always the real, unnamespaced production build -
           # readable by any caller regardless of namespace (see
-          # infra/r2-broker/lambda_function.py), so the broker calls below
+          # src/infra/r2-broker/lambda_function.py), so the broker calls below
           # pass an empty namespace deliberately, not github.repository.
           if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
             HEAD_OK=0; $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh head "" "$S3_KEY" || HEAD_OK=1
@@ -815,8 +815,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Validate bugs archive exists
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -868,8 +868,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see infra/r2-broker/README.md
+          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
 
       - name: Increment fuzz count and manage schedule
         env:

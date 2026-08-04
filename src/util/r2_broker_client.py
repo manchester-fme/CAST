@@ -1,5 +1,5 @@
 """
-Client for CAST's R2 storage broker (see infra/r2-broker/).
+Client for CAST's R2 storage broker (see src/infra/r2-broker/).
 
 Lets a caller (e.g. a fork's GitHub Actions run) read/write CAST's R2
 bucket without ever holding a static credential, using only:
@@ -49,7 +49,7 @@ def session_name_for_namespace(namespace: Optional[str]) -> str:
     """IAM role session names can't contain "/", so github.repository
     ("owner/repo") gets "@"-separated instead - "@" is valid in a session
     name and never appears in a GitHub owner or repo name. Must match the
-    reverse mapping in infra/r2-broker/lambda_function.py's
+    reverse mapping in src/infra/r2-broker/lambda_function.py's
     _namespace_from_session exactly.
 
     A caller with no namespace (read-only use, e.g. reading the real

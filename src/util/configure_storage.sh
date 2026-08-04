@@ -8,7 +8,7 @@
 #   AWS_BUCKET_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and (R2 only)
 #   AWS_ACCOUNT_ID, plus an optional AWS_REGION for AWS.
 #
-# A third, credential-free backend ("r2-broker", see infra/r2-broker/ and
+# A third, credential-free backend ("r2-broker", see src/infra/r2-broker/ and
 # src/util/r2_broker_client.py) needs no secrets at all - just a public
 # Lambda Function URL and IAM role ARN (neither sensitive; the role's trust
 # policy is what actually gates access), exchanged at runtime for a scoped,
