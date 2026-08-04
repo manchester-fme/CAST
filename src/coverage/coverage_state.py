@@ -33,19 +33,22 @@ class CoverageStateManager:
     SCHEMA_VERSION = '1.0'
     REBUILD_THRESHOLD_DAYS = 30
 
-    def __init__(self, bucket: str, solver: str, region: str = 'us-east-1'):
+    def __init__(self, bucket: str, solver: str, region: str = 'us-east-1', namespace: Optional[str] = None):
         """
         Initialize state manager.
 
         Args:
             bucket: S3 bucket name
-            solver: Solver name (cvc5 or z3)
+            solver: Solver name (any value with a src/solvers/<solver> directory)
             region: AWS region
+            namespace: Optional top-level prefix (e.g. calling repo, "<owner>/<repo>") that
+                isolates this state from the shared production state. See src/scheduling/s3_state.py.
         """
         self.bucket = bucket
         self.solver = solver
         self.region = region
-        self.s3_key = f"solvers/{solver}/coverage-state/{self.STATE_FILE_NAME}"
+        self.namespace = namespace
+        self.s3_key = f"{namespace + '/' if namespace else ''}solvers/{solver}/coverage-state/{self.STATE_FILE_NAME}"
 
         # Initialize S3-compatible client (AWS S3 or Cloudflare R2, via STORAGE_PROVIDER)
         self.s3_client = build_client(region=region)
@@ -220,8 +223,13 @@ Environment variables:
 
     parser.add_argument(
         'solver',
-        choices=['cvc5', 'z3'],
-        help='Solver name'
+        help='Solver name (any value with a src/solvers/<solver> directory)'
+    )
+
+    parser.add_argument(
+        '--namespace',
+        default=None,
+        help='Optional namespace to isolate state from production (e.g. for fork builds)'
     )
 
     parser.add_argument(
@@ -273,7 +281,7 @@ Environment variables:
     region = os.environ.get('AWS_REGION', 'us-east-1')
 
     # Initialize state manager
-    manager = CoverageStateManager(bucket=bucket, solver=args.solver, region=region)
+    manager = CoverageStateManager(bucket=bucket, solver=args.solver, region=region, namespace=args.namespace)
 
     # Execute command
     if args.command == 'get':

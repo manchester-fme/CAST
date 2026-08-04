@@ -7,12 +7,12 @@ from typing import Optional
 from src.scheduling.s3_state import get_state_manager, S3StateError
 
 
-def get_least_fuzzed_commit(solver: str) -> Optional[str]:
+def get_least_fuzzed_commit(solver: str, namespace: Optional[str] = None) -> Optional[str]:
     """Get the least-fuzzed commit from fuzzing schedule. Returns None if schedule is empty.
     When all commits have the same fuzz_count, returns the oldest (first in list).
-    
+
     NOTE: This is a read-only operation. For atomic selection with increment, use select_and_increment_least_fuzzed."""
-    manager = get_state_manager(solver)
+    manager = get_state_manager(solver, namespace=namespace)
     schedule = manager.get_fuzzing_schedule()
     
     if not schedule:
@@ -30,13 +30,13 @@ def get_least_fuzzed_commit(solver: str) -> Optional[str]:
     return schedule[0].get('hash')
 
 
-def increment_fuzz_count_and_manage(solver: str, commit_hash: str) -> None:
+def increment_fuzz_count_and_manage(solver: str, commit_hash: str, namespace: Optional[str] = None) -> None:
     """Manage schedule size after fuzzing completes.
     If schedule > 4, remove oldest fuzzed commit (fuzz_count > 0), or oldest if all are unfuzzed.
-    
+
     NOTE: fuzz_count is now incremented atomically during selection (in run_fuzzer),
     so we don't increment it again here. This function only handles schedule management."""
-    manager = get_state_manager(solver)
+    manager = get_state_manager(solver, namespace=namespace)
     
     # Verify commit exists in schedule
     schedule = manager.get_fuzzing_schedule()
@@ -76,17 +76,17 @@ def increment_fuzz_count_and_manage(solver: str, commit_hash: str) -> None:
 
 
 from typing import Tuple
-def run_fuzzer(solver: str, verify_binary: bool = True) -> Tuple[Optional[str], Optional[str]]:
+def run_fuzzer(solver: str, verify_binary: bool = True, namespace: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
     """Get commit to fuzz from schedule and latest build to use.
     Returns (commit_to_fuzz, latest_build_to_use) tuple.
-    
+
     - commit_to_fuzz: Oldest commit from fuzzing schedule (FIFO)
     - latest_build_to_use: Latest available build from S3 (to use for fuzzing)
-    
+
     This allows fuzzing old commits using the latest build to avoid discovering
     bugs that were already fixed in newer commits."""
     try:
-        manager = get_state_manager(solver)
+        manager = get_state_manager(solver, namespace=namespace)
         
         # Step 1: Get commit to fuzz (oldest from schedule, FIFO)
         schedule = manager.get_fuzzing_schedule()
@@ -112,10 +112,9 @@ def run_fuzzer(solver: str, verify_binary: bool = True) -> Tuple[Optional[str], 
         
         if verify_binary:
             from botocore.exceptions import ClientError
-            from src.scheduling.s3_state import DEFAULT_STATE_VERSION
-            
-            s3_key = f"solvers/{solver}/builds/{DEFAULT_STATE_VERSION}/production/{latest_build}.tar.gz"
-            
+
+            s3_key = manager.production_build_key(latest_build)
+
             try:
                 manager.s3_client.head_object(Bucket=manager.bucket, Key=s3_key)
             except ClientError as e:
@@ -138,7 +137,8 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Fuzzer job - select commit from fuzzing schedule')
-    parser.add_argument('solver', choices=['z3', 'cvc5'], help='Solver name')
+    parser.add_argument('solver', help='Solver name (any value with a src/solvers/<solver> directory)')
+    parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
     subparsers = parser.add_subparsers(dest='command', help='Command to execute', required=True)
     
     # Select commit command
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if args.command == 'select':
-        commit_to_fuzz, latest_build = run_fuzzer(args.solver, verify_binary=not args.no_verify)
+        commit_to_fuzz, latest_build = run_fuzzer(args.solver, verify_binary=not args.no_verify, namespace=args.namespace)
         if args.json:
             import json
             result = {
@@ -171,7 +171,7 @@ if __name__ == '__main__':
                 sys.exit(0)
     elif args.command == 'increment':
         try:
-            increment_fuzz_count_and_manage(args.solver, args.commit)
+            increment_fuzz_count_and_manage(args.solver, args.commit, namespace=args.namespace)
         except S3StateError as e:
             print(f"❌ S3 State Error: {e}", file=sys.stderr)
             sys.exit(1)

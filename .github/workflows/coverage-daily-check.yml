@@ -1,0 +1,162 @@
+name: Coverage Daily Check
+
+# Reusable, solver-agnostic daily coverage-rebuild check.
+#
+# Generalizes cvc5-coverage-daily-check.yml and z3-coverage-daily-check.yml.
+# Same manifest-driven approach as coverage-mapper.yml (see that file's
+# header for the full rationale) - all solver-specific facts (extra repos to
+# clone, pre-discovery setup, test-discovery flag/target) come from
+# src/solvers/<solver>/manifest.json, not from branching in this file.
+#
+# Runnable standalone:
+#   - From the GitHub UI/API: Actions -> Coverage Daily Check -> Run workflow
+#   - From another workflow: uses: ./.github/workflows/coverage-daily-check.yml (workflow_call)
+#
+# solver/repo_url default to the cvc5 production values, so a no-argument
+# run checks cvc5 under this workflow's own (forced) namespace - see
+# coverage-mapper.yml's header for the namespace/oracle-pinning rationale.
+
+on:
+  workflow_call:
+    inputs:
+      solver:
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
+        required: false
+        type: string
+        default: cvc5
+      repo_url:
+        description: 'Git URL of the upstream solver repository to check'
+        required: false
+        type: string
+        default: https://github.com/cvc5/cvc5.git
+  workflow_dispatch:
+    inputs:
+      solver:
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
+        required: false
+        type: string
+        default: cvc5
+      repo_url:
+        description: 'Git URL of the upstream solver repository to check'
+        required: false
+        type: string
+        default: https://github.com/cvc5/cvc5.git
+
+jobs:
+  check-rebuild-needed:
+    runs-on: ubuntu-latest
+    outputs:
+      should_rebuild: ${{ steps.check-state.outputs.should_rebuild }}
+      reason: ${{ steps.check-state.outputs.reason }}
+      test_count: ${{ steps.count-tests.outputs.test_count }}
+      commit_hash: ${{ steps.count-tests.outputs.commit_hash }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Checkout solver repository and manifest-declared extra repos
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          if [ -d "$SOLVER" ]; then
+            (cd "$SOLVER" && git fetch origin)
+          else
+            git clone "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+          while IFS= read -r repo; do
+            [ -z "$repo" ] && continue
+            dir=$(basename "$repo" .git)
+            if [ -d "$dir" ]; then
+              echo "$dir already exists, skipping clone"
+            else
+              git clone "$repo" "$dir"
+            fi
+          done < <(jq -r '.coverage.extra_repos[]' "$MANIFEST")
+
+      - name: Run manifest-declared pre-discovery setup
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          PRE_SETUP=$(jq -r '.coverage.pre_discovery_setup // empty' "$MANIFEST")
+          if [ -n "$PRE_SETUP" ]; then
+            (cd "$SOLVER" && eval "$PRE_SETUP")
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install boto3 psutil
+
+      - name: Count tests
+        id: count-tests
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          DISCOVERY_FLAG=$(jq -r '.coverage.discovery_flag' "$MANIFEST")
+          DISCOVERY_TARGET=$(jq -r '.coverage.discovery_target' "$MANIFEST" | sed "s/{solver}/$SOLVER/")
+
+          python3 src/coverage/count_tests.py "$SOLVER" \
+            "$DISCOVERY_FLAG" "$DISCOVERY_TARGET" \
+            --output test-count.json
+
+          TEST_COUNT=$(jq -r '.test_count' test-count.json)
+          COMMIT_HASH=$(jq -r '.commit_hash' test-count.json)
+
+          echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+
+          echo "✅ Found $TEST_COUNT tests at commit ${COMMIT_HASH:0:8}"
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Check if rebuild needed
+        id: check-state
+        run: |
+          NAMESPACE="${{ github.repository }}"
+          python3 src/coverage/coverage_state.py ${{ inputs.solver }} --namespace "$NAMESPACE" check \
+            --test-count ${{ steps.count-tests.outputs.test_count }} \
+            --output decision.json
+
+          SHOULD_REBUILD=$(jq -r '.should_rebuild' decision.json)
+          REASON=$(jq -r '.reason' decision.json)
+
+          echo "should_rebuild=$SHOULD_REBUILD" >> $GITHUB_OUTPUT
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+          if [ "$SHOULD_REBUILD" = "true" ]; then
+            echo "✅ Decision: REBUILD - $REASON"
+          else
+            echo "⏭️  Decision: SKIP - $REASON"
+          fi
+
+  trigger-coverage-build:
+    needs: check-rebuild-needed
+    if: needs.check-rebuild-needed.outputs.should_rebuild == 'true'
+    uses: ./.github/workflows/coverage-mapper.yml
+    with:
+      solver: ${{ inputs.solver }}
+      repo_url: ${{ inputs.repo_url }}
+      commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
+      test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}
+    secrets: inherit
+
+  skip-build:
+    needs: check-rebuild-needed
+    if: needs.check-rebuild-needed.outputs.should_rebuild == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log skip reason
+        run: |
+          echo "⏭️  Skipping coverage build"
+          echo "Reason: ${{ needs.check-rebuild-needed.outputs.reason }}"
+          echo "Test count: ${{ needs.check-rebuild-needed.outputs.test_count }}"
+          echo "Commit: ${{ needs.check-rebuild-needed.outputs.commit_hash }}"

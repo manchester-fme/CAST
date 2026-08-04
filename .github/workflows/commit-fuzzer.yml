@@ -1,0 +1,803 @@
+name: Commit Fuzzer
+
+# Reusable, solver-agnostic commit-fuzzing workflow.
+#
+# Generalizes cvc5-commit-fuzzer.yml and z3-commit-fuzzer.yml. This is a
+# genuine two-way differential-testing pair, not just duplicated code: cvc5
+# uses z3 as its oracle, z3 uses cvc5 as its oracle, plus z3 needs an extra
+# `z3test` repo and has a binary-caching optimization cvc5 doesn't. Same
+# manifest-driven approach as coverage-mapper.yml (see that file's header
+# for the full rationale) - every solver-specific fact (which solver is the
+# oracle, how to fetch it, test root, harness flags, whether the SUT clone
+# can be skipped when a binary is already available) is declared in
+# src/solvers/<solver>/manifest.json's "fuzzer" section, not branched on
+# `inputs.solver` in this file.
+#
+# Runnable standalone:
+#   - From the GitHub UI/API: Actions -> Commit Fuzzer -> Run workflow
+#   - From another workflow: uses: ./.github/workflows/commit-fuzzer.yml (workflow_call)
+#
+# State (build-queue/fuzzing-schedule reads, coverage-map reads, uploaded
+# bug archives) is always namespaced by the calling repository
+# (`github.repository`), same forced/top-level-prefix scheme as
+# build.yml/manager.yml/coverage-mapper.yml. The oracle solver's binary is
+# never namespaced - it always comes from the real upstream production
+# build (or the manifest-declared fallback), regardless of who's calling,
+# so a fork is always validated against the real oracle, not another fork.
+#
+# solver/repo_url default to the cvc5 production values, so a no-argument
+# run fuzzes cvc5 under this workflow's own (forced) namespace.
+
+on:
+  workflow_call:
+    inputs:
+      solver:
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
+        required: false
+        type: string
+        default: cvc5
+      repo_url:
+        description: 'Git URL of the upstream solver repository to fuzz'
+        required: false
+        type: string
+        default: https://github.com/cvc5/cvc5.git
+      commit_hash:
+        description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
+        required: false
+        type: string
+      coverage_commit_hash:
+        description: 'Optional: commit hash to use for coverage mapping (defaults to latest in S3)'
+        required: false
+        type: string
+      stop_buffer_minutes:
+        description: 'Minutes before timeout to stop fuzzing'
+        required: false
+        type: number
+        default: 5
+  workflow_dispatch:
+    inputs:
+      solver:
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
+        required: false
+        type: string
+        default: cvc5
+      repo_url:
+        description: 'Git URL of the upstream solver repository to fuzz'
+        required: false
+        type: string
+        default: https://github.com/cvc5/cvc5.git
+      commit_hash:
+        description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
+        required: false
+        type: string
+      coverage_commit_hash:
+        description: 'Optional: commit hash to use for coverage mapping (defaults to latest in S3)'
+        required: false
+        type: string
+      stop_buffer_minutes:
+        description: 'Minutes before timeout to stop fuzzing'
+        required: false
+        type: number
+        default: 5
+
+jobs:
+  check-latest-build:
+    runs-on: ubuntu-latest
+    outputs:
+      fuzzing_needed: ${{ steps.set-outputs.outputs.fuzzing_needed }}
+      sha: ${{ steps.set-outputs.outputs.sha }}
+      commit_to_fuzz: ${{ steps.set-outputs.outputs.commit_to_fuzz }}
+      latest_build: ${{ steps.set-outputs.outputs.latest_build }}
+      is_manual_run: ${{ steps.set-outputs.outputs.is_manual_run }}
+      binary_available: ${{ steps.set-outputs.outputs.binary_available }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install boto3
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Get commit to fuzz and latest build
+        id: set-outputs
+        run: |
+          set +e  # Don't exit on error - handle errors gracefully
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ github.repository }}"
+          # If workflow_dispatch with commit hash provided, use that commit
+          # Otherwise (scheduled OR workflow_dispatch without commit), use fuzzer to select
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.commit_hash }}" ]; then
+            COMMIT_TO_FUZZ="${{ inputs.commit_hash }}"
+            # For manual runs, get latest build to use
+            echo "🔍 Attempting to get latest build from S3..."
+            LATEST_BUILD=$(python -c "from src.scheduling.s3_state import get_state_manager; m = get_state_manager('$SOLVER', namespace='$NAMESPACE'); print(m.get_latest_available_build() or '')" 2>&1)
+            PYTHON_EXIT=$?
+            echo "DEBUG: Python exit code: $PYTHON_EXIT"
+            echo "DEBUG: LATEST_BUILD result: '${LATEST_BUILD}'"
+            # Extract just the commit hash (last line, filter out debug messages)
+            LATEST_BUILD=$(echo "$LATEST_BUILD" | grep -E '^[a-f0-9]{40}$' | tail -1 || echo '')
+            if [ -z "$LATEST_BUILD" ]; then
+              echo "⚠️  No latest build available, using provided commit as build"
+              LATEST_BUILD="$COMMIT_TO_FUZZ"
+            fi
+            echo "🔨 Using provided commit: $COMMIT_TO_FUZZ with build: $LATEST_BUILD"
+            echo "fuzzing_needed=true" >> $GITHUB_OUTPUT
+            echo "commit_to_fuzz=$COMMIT_TO_FUZZ" >> $GITHUB_OUTPUT
+            echo "latest_build=$LATEST_BUILD" >> $GITHUB_OUTPUT
+            echo "sha=$COMMIT_TO_FUZZ" >> $GITHUB_OUTPUT
+            echo "is_manual_run=true" >> $GITHUB_OUTPUT
+            echo "binary_available=true" >> $GITHUB_OUTPUT
+          else
+            # Scheduled run OR workflow_dispatch without commit - use fuzzer to select
+            echo "🔍 Running fuzzer.py to select commit..."
+            PYTHONPATH="${{ github.workspace }}" python src/scheduling/fuzzer.py "$SOLVER" --namespace "$NAMESPACE" select >/tmp/fuzzer_stdout.txt 2>/tmp/fuzzer_stderr.txt || true
+            RESULT=$(cat /tmp/fuzzer_stdout.txt 2>/dev/null || echo "")
+            STDERR_OUTPUT=$(cat /tmp/fuzzer_stderr.txt 2>/dev/null || echo "")
+            echo "=== Fuzzer Debug Output ==="
+            if [ -n "$STDERR_OUTPUT" ]; then
+              echo "$STDERR_OUTPUT"
+            else
+              echo "(no stderr output)"
+            fi
+            echo "=== Fuzzer Result (stdout) ==="
+            echo "Result: '$RESULT'"
+            if [ -n "$RESULT" ] && [ "$(echo "$RESULT" | wc -w)" -eq 2 ]; then
+              COMMIT_TO_FUZZ=$(echo "$RESULT" | awk '{print $1}')
+              LATEST_BUILD=$(echo "$RESULT" | awk '{print $2}')
+              echo "✅ Found commit to fuzz: $COMMIT_TO_FUZZ, using latest build: $LATEST_BUILD"
+              echo "fuzzing_needed=true" >> $GITHUB_OUTPUT
+              echo "commit_to_fuzz=$COMMIT_TO_FUZZ" >> $GITHUB_OUTPUT
+              echo "latest_build=$LATEST_BUILD" >> $GITHUB_OUTPUT
+              echo "sha=$COMMIT_TO_FUZZ" >> $GITHUB_OUTPUT
+              echo "is_manual_run=false" >> $GITHUB_OUTPUT
+              echo "binary_available=true" >> $GITHUB_OUTPUT
+            else
+              echo "⏭️  No commits in fuzzing schedule or no builds available"
+              echo "fuzzing_needed=false" >> $GITHUB_OUTPUT
+              echo "commit_to_fuzz=" >> $GITHUB_OUTPUT
+              echo "latest_build=" >> $GITHUB_OUTPUT
+              echo "sha=" >> $GITHUB_OUTPUT
+              echo "is_manual_run=false" >> $GITHUB_OUTPUT
+              echo "binary_available=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  skip-fuzzing:
+    needs: check-latest-build
+    if: |
+      github.event_name == 'schedule' &&
+      (needs.check-latest-build.outputs.fuzzing_needed == 'false' || needs.check-latest-build.outputs.binary_available == 'false')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip fuzzing
+        run: |
+          if [ "${{ needs.check-latest-build.outputs.fuzzing_needed }}" == "false" ]; then
+            echo "✅ No builds available - skipping fuzzing"
+          else
+            echo "❌ Production binary not available - skipping fuzzing"
+          fi
+
+  commit-fuzzer:
+    needs: check-latest-build
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'schedule' && needs.check-latest-build.outputs.fuzzing_needed == 'true' && needs.check-latest-build.outputs.binary_available == 'true')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.extract-tests.outputs.matrix }}
+      total_tests: ${{ steps.extract-tests.outputs.total_tests }}
+      total_jobs: ${{ steps.extract-tests.outputs.total_jobs }}
+      commit_hash: ${{ steps.get-commit.outputs.commit_hash }}
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install LLVM/Clang 17
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '17'
+
+      - name: Add LLVM to PATH
+        run: echo "${{ env.LLVM_PATH }}/bin" >> $GITHUB_PATH
+
+      - name: Export LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
+
+      - name: Install system development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libc6-dev \
+            gcc \
+            g++ \
+            binutils \
+            libstdc++-14-dev \
+            libc++-dev \
+            libc++abi-dev \
+            zlib1g \
+            zlib1g-dev
+
+      - name: Install Python dependencies
+        run: |
+          pip install gitpython unidiff "libclang==17.0.6"
+
+      - name: Clone solver repository and manifest-declared extra repos
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          if [ -d "$SOLVER" ]; then
+            echo "$SOLVER directory already exists, skipping clone"
+          else
+            git clone "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+          while IFS= read -r repo; do
+            [ -z "$repo" ] && continue
+            dir=$(basename "$repo" .git)
+            if [ -d "$dir" ]; then
+              echo "$dir already exists, skipping clone"
+            else
+              git clone "$repo" "$dir"
+            fi
+          done < <(jq -r '.fuzzer.extra_repos[]' "$MANIFEST")
+
+      - name: Checkout commit to fuzz
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          COMMIT_TO_FUZZ="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"
+          echo "🔨 Checking out commit to fuzz: $COMMIT_TO_FUZZ"
+          (cd "$SOLVER" && git fetch origin && git checkout "$COMMIT_TO_FUZZ" && echo "Checked out commit: $(git rev-parse HEAD)")
+
+      - name: Get solver commit hash
+        id: get-commit
+        run: |
+          COMMIT_HASH=$(cd "${{ inputs.solver }}" && git rev-parse HEAD)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "${{ inputs.solver }} commit hash: $COMMIT_HASH"
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Download production binary from S3 (for headers and compile_commands.json)
+        id: download-production-binary
+        continue-on-error: true
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ github.repository }}"
+          mkdir -p artifacts
+          LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
+          S3_KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${LATEST_BUILD}.tar.gz"
+
+          if aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+            echo "📥 Downloading production binary for latest build: $LATEST_BUILD (for headers and compile_commands.json)"
+            aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz
+            echo "artifacts_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "WARNING: Production binary not found in S3 for $LATEST_BUILD, will build as fallback"
+            echo "artifacts_available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract headers and compile_commands.json
+        id: extract-artifacts
+        if: steps.download-production-binary.outputs.artifacts_available == 'true'
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          if [ -f "artifacts/artifacts.tar.gz" ]; then
+            ./src/solvers/$SOLVER/extract_build_artifacts.sh artifacts/artifacts.tar.gz $SOLVER/build true
+            if [ -f "$SOLVER/build/compile_commands.json" ]; then
+              echo "✅ Headers and compile_commands.json extracted successfully"
+              echo "artifacts_available=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ compile_commands.json extraction failed"
+              echo "artifacts_available=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "artifacts_available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build solver static binary (fallback for headers and compile_commands.json)
+        if: steps.extract-artifacts.outputs.artifacts_available != 'true'
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          if [ ! -f "$SOLVER/build/compile_commands.json" ]; then
+            echo "🔨 Building $SOLVER static binary as fallback to get headers and compile_commands.json"
+            ./src/solvers/$SOLVER/build.sh --static
+          else
+            echo "✅ Using artifacts from S3, skipping build"
+          fi
+
+      - name: Configure storage backend for coverage download
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Download coverage map from S3
+        id: download-coverage
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ github.repository }}"
+          PREFIX="$NAMESPACE/solvers/$SOLVER/coverage-mappings"
+          if [ -n "${{ inputs.coverage_commit_hash }}" ]; then
+            COVERAGE_COMMIT="${{ inputs.coverage_commit_hash }}"
+            S3_KEY="$PREFIX/coverage_mapping-${COVERAGE_COMMIT}.json.gz"
+            if aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+              echo "📥 Downloading coverage mapping for commit: ${COVERAGE_COMMIT}"
+              aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY coverage_mapping.json.gz
+              echo "coverage_found=true" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Coverage mapping not found for commit: ${COVERAGE_COMMIT}"
+              echo "coverage_found=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "🔍 Finding latest coverage mapping in S3..."
+            LATEST=$(aws s3 ls s3://$AWS_BUCKET_NAME/$PREFIX/ \
+              | grep "coverage_mapping-" \
+              | sort -r \
+              | head -n 1 \
+              | awk '{print $4}' || echo "")
+            if [ -n "$LATEST" ]; then
+              echo "📥 Downloading latest coverage mapping: $LATEST"
+              aws s3 cp s3://$AWS_BUCKET_NAME/$PREFIX/$LATEST coverage_mapping.json.gz
+              echo "coverage_found=true" >> $GITHUB_OUTPUT
+              echo "coverage_file=$LATEST" >> $GITHUB_OUTPUT
+            else
+              echo "❌ No coverage mappings found in S3"
+              echo "coverage_found=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Extract coverage map
+        if: steps.download-coverage.outputs.coverage_found == 'true'
+        run: |
+          gunzip coverage_mapping.json.gz
+          ls -la coverage_mapping.json
+          echo "✅ Coverage mapping extracted successfully"
+
+      - name: Coverage mapping not found
+        if: steps.download-coverage.outputs.coverage_found != 'true'
+        run: |
+          echo "❌ Coverage mapping not found. Please run the coverage mapper workflow first or specify a valid coverage_commit_hash."
+          exit 1
+
+      - name: Run Commit Fuzzer and create matrix
+        id: extract-tests
+        env:
+          SKIP_COVERAGE_ENFORCEMENT: "true"
+          MAX_JOBS: 9
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          COMMIT_ENV_NAME="$(echo "$SOLVER" | tr '[:lower:]' '[:upper:]')_COMMIT_HASH"
+          export "$COMMIT_ENV_NAME=${{ steps.get-commit.outputs.commit_hash }}"
+
+          cd "$SOLVER"
+          # Run commit fuzzer with matrix output (1 commit instead of 50).
+          # Max 9 jobs per solver (18 total for both z3 and cvc5) to leave space for building and management.
+          # Tests per job is calculated dynamically to fit within MAX_JOBS.
+          ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/run_prepare_commit_fuzzer.sh \
+            --python-script ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/prepare_commit_fuzzer.py \
+            --coverage-file ../coverage_mapping.json \
+            --compile-commands build \
+            --output-matrix fuzzer_matrix.json \
+            --max-jobs $MAX_JOBS \
+            1
+
+          if [ ! -f "fuzzer_matrix.json" ]; then
+            echo "No matrix file created (no functions found or no tests), setting empty outputs"
+            echo "matrix={\"include\":[]}" >> $GITHUB_OUTPUT
+            echo "total_tests=0" >> $GITHUB_OUTPUT
+            echo "total_jobs=0" >> $GITHUB_OUTPUT
+            echo "✅ No functions to fuzz - ending gracefully"
+          else
+            MATRIX=$(jq -c '.matrix' fuzzer_matrix.json)
+            TOTAL_TESTS=$(jq -r '.total_tests' fuzzer_matrix.json)
+            TOTAL_JOBS=$(jq -r '.total_jobs' fuzzer_matrix.json)
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+            echo "total_jobs=$TOTAL_JOBS" >> $GITHUB_OUTPUT
+            echo "Matrix created with $TOTAL_JOBS jobs for $TOTAL_TESTS tests"
+          fi
+
+  fuzzer-jobs:
+    needs: [check-latest-build, commit-fuzzer]
+    if: needs.commit-fuzzer.result == 'success' && needs.commit-fuzzer.outputs.total_tests != '' && needs.commit-fuzzer.outputs.total_tests != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.commit-fuzzer.outputs.matrix) }}
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Record job start time
+        run: echo "$(date +%s)" > /tmp/job_start_${GITHUB_RUN_ID}_${{ matrix.job_id }}.txt
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip unzip wget
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Install fuzzing dependencies
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          pip install antlr4-python3-runtime==4.9.2
+          pip install psutil
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            pip install "$pkg"
+          done < <(jq -r '.fuzzer.extra_pip_packages[]' "$MANIFEST")
+          git clone https://github.com/testsmt/yinyang.git
+          cd yinyang
+          pip install -e .
+          cd ..
+          pip cache purge || true
+
+      - name: Clone manifest-declared extra repos
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          while IFS= read -r repo; do
+            [ -z "$repo" ] && continue
+            dir=$(basename "$repo" .git)
+            if [ -d "$dir" ]; then
+              echo "$dir already exists, skipping clone"
+            else
+              git clone "$repo" "$dir"
+            fi
+          done < <(jq -r '.fuzzer.extra_repos[]' "$MANIFEST")
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Fetch oracle binary from S3
+        id: fetch-oracle
+        continue-on-error: true
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
+          echo "oracle_solver=$ORACLE_SOLVER" >> $GITHUB_OUTPUT
+          if [ -z "$ORACLE_SOLVER" ]; then
+            echo "No oracle declared for $SOLVER"
+            echo "oracle_binary_available=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "🔍 Getting latest $ORACLE_SOLVER build from S3 (oracle, unnamespaced)..."
+          LATEST_ORACLE_BUILD=$(python -c "from src.scheduling.s3_state import get_state_manager; m = get_state_manager('$ORACLE_SOLVER'); print(m.get_latest_available_build() or '')" 2>&1)
+          LATEST_ORACLE_BUILD=$(echo "$LATEST_ORACLE_BUILD" | grep -E '^[a-f0-9]{40}$' | tail -1 || echo '')
+          if [ -z "$LATEST_ORACLE_BUILD" ]; then
+            echo "⚠️  No latest $ORACLE_SOLVER build available"
+            echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          mkdir -p artifacts-oracle
+          S3_KEY="solvers/$ORACLE_SOLVER/builds/v2/production/${LATEST_ORACLE_BUILD}.tar.gz"
+          if ! aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+            echo "WARNING: $ORACLE_SOLVER production binary not found in S3 at key: $S3_KEY"
+            echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if ! aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts-oracle/artifacts.tar.gz; then
+            echo "❌ $ORACLE_SOLVER binary download failed"
+            echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          ORACLE_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$ORACLE_SOLVER/manifest.json" | sed 's#^\./##')
+          mkdir -p "$ORACLE_SOLVER/build"
+          ./src/solvers/$ORACLE_SOLVER/extract_build_artifacts.sh artifacts-oracle/artifacts.tar.gz $ORACLE_SOLVER/build false
+          if [ ! -f "$ORACLE_SOLVER/$ORACLE_BINARY_RELPATH" ]; then
+            echo "⚠️ $ORACLE_SOLVER binary extraction failed"
+            echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+          cp "$ORACLE_SOLVER/$ORACLE_BINARY_RELPATH" "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER"
+          chmod +x "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER"
+          echo "$GITHUB_WORKSPACE/oracle-bin" >> $GITHUB_PATH
+          rm -f artifacts-oracle/artifacts.tar.gz
+          echo "✅ $ORACLE_SOLVER oracle binary ready"
+          echo "oracle_binary_available=true" >> $GITHUB_OUTPUT
+
+      - name: Install oracle fallback if unavailable
+        if: steps.fetch-oracle.outputs.oracle_binary_available != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          ORACLE_SOLVER="${{ steps.fetch-oracle.outputs.oracle_solver }}"
+          FALLBACK_TYPE=$(jq -r '.fuzzer.oracle_fetch_fallback.type' "$MANIFEST")
+          echo "⚠️ $ORACLE_SOLVER binary from S3 not available, using fallback ($FALLBACK_TYPE)"
+          if [ "$FALLBACK_TYPE" = "pip" ]; then
+            PACKAGE=$(jq -r '.fuzzer.oracle_fetch_fallback.package' "$MANIFEST")
+            pip install "$PACKAGE"
+          elif [ "$FALLBACK_TYPE" = "script" ]; then
+            SCRIPT=$(jq -r '.fuzzer.oracle_fetch_fallback.path' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$SCRIPT" "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> $GITHUB_PATH
+          else
+            echo "❌ Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
+            exit 1
+          fi
+
+      - name: Fetch SUT production binary from S3
+        id: fetch-sut-binary
+        continue-on-error: true
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="${{ github.repository }}"
+          LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
+          S3_KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${LATEST_BUILD}.tar.gz"
+
+          mkdir -p artifacts
+          if ! aws s3api head-object --bucket $AWS_BUCKET_NAME --key "$S3_KEY" >/dev/null 2>&1; then
+            echo "WARNING: Production binary not found in S3 at key: $S3_KEY"
+            echo "sut_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if ! aws s3 cp s3://$AWS_BUCKET_NAME/$S3_KEY artifacts/artifacts.tar.gz; then
+            echo "❌ Binary download failed"
+            echo "sut_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$SOLVER/manifest.json" | sed 's#^\./##')
+          mkdir -p "$SOLVER/build"
+          ./src/solvers/$SOLVER/extract_build_artifacts.sh artifacts/artifacts.tar.gz $SOLVER/build false
+          if [ ! -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
+            echo "⚠️ Binary extraction failed"
+            echo "sut_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          rm -f artifacts/artifacts.tar.gz
+          echo "✅ Production binary extracted successfully"
+          echo "sut_binary_available=true" >> $GITHUB_OUTPUT
+
+      - name: Clone/build SUT if needed
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SKIP_IF_CACHED=$(jq -r '.fuzzer.skip_sut_clone_if_binary_cached' "$MANIFEST")
+          BINARY_AVAILABLE="${{ steps.fetch-sut-binary.outputs.sut_binary_available }}"
+
+          clone_and_checkout() {
+            if [ -d "$SOLVER" ]; then
+              echo "$SOLVER directory already exists, skipping clone"
+            else
+              git clone "${{ inputs.repo_url }}" "$SOLVER"
+            fi
+            (cd "$SOLVER" && git fetch origin && git checkout "${{ needs.commit-fuzzer.outputs.commit_hash }}" && echo "Checked out commit: $(git rev-parse HEAD)")
+          }
+
+          if [ "$SKIP_IF_CACHED" = "true" ] && [ "$BINARY_AVAILABLE" = "true" ]; then
+            echo "✅ $SOLVER binary found, skipping repository clone"
+          else
+            if [ "$SKIP_IF_CACHED" = "true" ]; then
+              echo "⚠️ $SOLVER binary not available, cloning repository for fallback build"
+            fi
+            clone_and_checkout
+            TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST" | sed 's#^\./##')
+            if [ ! -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
+              echo "🔨 Building $SOLVER static binary as fallback (binary not available from S3)"
+              ./src/solvers/$SOLVER/build.sh --static
+            else
+              echo "✅ Using binary from S3, skipping build"
+            fi
+          fi
+
+      - name: Clean up git repositories to save space
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            rm -rf "$dir/.git" || true
+          done < <(jq -r '.fuzzer.git_cleanup_dirs[]' "$MANIFEST")
+          echo "✅ Cleaned up git repositories"
+
+      - name: Verify solver binaries
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          ORACLE_SOLVER="${{ steps.fetch-oracle.outputs.oracle_solver }}"
+          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$SOLVER/manifest.json" | sed 's#^\./##')
+          if [ -n "$ORACLE_SOLVER" ]; then
+            "$ORACLE_SOLVER" --version || echo "⚠️ $ORACLE_SOLVER not on PATH"
+          fi
+          if [ -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
+            "$SOLVER/$TARGET_BINARY_RELPATH" --version || true
+          else
+            echo "⚠️ $SOLVER binary not found at $SOLVER/$TARGET_BINARY_RELPATH, skipping verification"
+          fi
+
+      - name: Run Simple Fuzzer on assigned tests
+        working-directory: ${{ inputs.solver }}
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          MANIFEST="../src/solvers/$SOLVER/manifest.json"
+          JOB_START=$(cat /tmp/job_start_${GITHUB_RUN_ID}_${{ matrix.job_id }}.txt)
+          STOP_BUFFER=${{ inputs.stop_buffer_minutes || 5 }}
+
+          TESTS_ROOT=$(jq -r '.fuzzer.tests_root' "$MANIFEST")
+          TARGET_FLAG=$(jq -r '.fuzzer.target_flag' "$MANIFEST")
+          TARGET_BINARY_PATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST")
+          ORACLE_FLAG=$(jq -r '.fuzzer.oracle_flag // empty' "$MANIFEST")
+          ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
+
+          ARGS=(
+            --tests-json '${{ toJson(matrix.tests) }}'
+            --job-id '${{ matrix.job_id }}'
+            --tests-root "$TESTS_ROOT"
+            --job-start-time "$JOB_START"
+            --stop-buffer-minutes "$STOP_BUFFER"
+            --iterations 250
+            "$TARGET_FLAG" "$TARGET_BINARY_PATH"
+          )
+          if [ -n "$ORACLE_FLAG" ] && [ -n "$ORACLE_SOLVER" ]; then
+            ARGS+=("$ORACLE_FLAG" "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER")
+          fi
+
+          ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/simple_commit_fuzzer.py "${ARGS[@]}"
+
+      - name: Upload bugs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bugs-job-${{ matrix.job_id }}
+          path: ${{ inputs.solver }}/bugs
+          retention-days: 1
+          if-no-files-found: ignore
+
+  collect-bugs:
+    needs: [commit-fuzzer, fuzzer-jobs]
+    if: always() && needs.commit-fuzzer.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download all bug artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bugs-artifacts
+          pattern: bugs-job-*
+          merge-multiple: false
+
+      - name: Combine all bugs
+        id: combine-bugs
+        run: |
+          mkdir -p combined-bugs
+          if [ -d "bugs-artifacts" ]; then
+            find bugs-artifacts -name "*.smt2" -type f -exec cp {} combined-bugs/ \; 2>/dev/null || true
+          else
+            echo "No bug artifacts directory found (no bugs were found in any job)"
+          fi
+
+          BUG_COUNT=$(find combined-bugs -name "*.smt2" -type f 2>/dev/null | wc -l || echo "0")
+          echo "Total bugs found: $BUG_COUNT"
+          echo "bug_count=$BUG_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$BUG_COUNT" -eq 0 ]; then
+            echo "✅ No bugs found, skipping upload"
+            echo "bugs_found=false" >> $GITHUB_OUTPUT
+          else
+            echo "bugs_found=true" >> $GITHUB_OUTPUT
+            echo "Bugs found:"
+            find combined-bugs -name "*.smt2" -type f | sort
+          fi
+
+      - name: Create bugs archive
+        id: create-archive
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        run: |
+          COMMIT_HASH="${{ needs.commit-fuzzer.outputs.commit_hash }}"
+          COMMIT_SHORT="${COMMIT_HASH:0:7}"
+          TIMESTAMP=$(date +%s)
+          ARCHIVE_NAME="bugs-${COMMIT_SHORT}-${TIMESTAMP}.tar.gz"
+          cd combined-bugs
+          tar -czf ../${ARCHIVE_NAME} .
+          cd ..
+          ARCHIVE_SIZE=$(du -h ${ARCHIVE_NAME} | cut -f1)
+          echo "Created archive: ${ARCHIVE_NAME} ($ARCHIVE_SIZE)"
+          echo "archive_name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Configure storage backend
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Validate bugs archive exists
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        run: |
+          ARCHIVE_NAME="${{ steps.create-archive.outputs.archive_name }}"
+          if [ ! -f "$ARCHIVE_NAME" ]; then
+            echo "❌ Error: Archive file not found: $ARCHIVE_NAME"
+            exit 1
+          fi
+
+      - name: Upload bugs to S3
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        uses: ./.github/actions/s3-put-object
+        with:
+          key: ${{ github.repository }}/solvers/${{ inputs.solver }}/bugs/${{ steps.create-archive.outputs.archive_name }}
+          file: ${{ steps.create-archive.outputs.archive_name }}
+
+      - name: Report upload summary
+        if: steps.combine-bugs.outputs.bugs_found == 'true'
+        run: |
+          echo "Total bugs: ${{ steps.combine-bugs.outputs.bug_count }}"
+
+      - name: No bugs found
+        if: steps.combine-bugs.outputs.bugs_found != 'true'
+        run: |
+          echo "✅ No bugs found in this run, skipping S3 upload"
+
+  update-fuzz-count:
+    needs: [check-latest-build, commit-fuzzer, collect-bugs]
+    if: always() && needs.commit-fuzzer.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install boto3
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+
+      - name: Increment fuzz count and manage schedule
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          COMMIT_HASH="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"
+          NAMESPACE="${{ github.repository }}"
+          python src/scheduling/fuzzer.py "${{ inputs.solver }}" --namespace "$NAMESPACE" increment $COMMIT_HASH

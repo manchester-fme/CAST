@@ -343,20 +343,31 @@ class S3StateManager:
         state = self.read_state(filename, default={'last_checked_commit': None})
         return state.get('last_checked_commit')
     
+    def production_build_prefix(self, version: Optional[str] = None) -> str:
+        """S3 key prefix under which production build artifacts for this solver/namespace live.
+        Single source of truth for this path shape - reused by get_latest_available_build and by
+        callers (e.g. fuzzer.py) that need to check/construct a specific build's key directly."""
+        version = version if version is not None else DEFAULT_STATE_VERSION
+        return f"{self.namespace + '/' if self.namespace else ''}solvers/{self.solver}/builds/{version}/production/"
+
+    def production_build_key(self, commit_hash: str, version: Optional[str] = None) -> str:
+        """S3 key for a specific commit's production build artifact tarball."""
+        return f"{self.production_build_prefix(version)}{commit_hash}.tar.gz"
+
     def get_latest_available_build(self, version: Optional[str] = None) -> Optional[str]:
         """Get the latest available build commit hash from S3.
         Lists all production builds and returns the most recent one (by LastModified timestamp).
         Returns None if no builds are available.
-        
+
         Args:
             version: Version string (defaults to DEFAULT_STATE_VERSION, None for v1)
         """
         version = version if version is not None else DEFAULT_STATE_VERSION
         try:
             from botocore.exceptions import ClientError
-            
-            prefix = f"{self.namespace + '/' if self.namespace else ''}solvers/{self.solver}/builds/{version}/production/"
-            
+
+            prefix = self.production_build_prefix(version)
+
             # List all objects in the production builds directory
             paginator = self.s3_client.get_paginator('list_objects_v2')
             pages = paginator.paginate(Bucket=self.bucket, Prefix=prefix)
