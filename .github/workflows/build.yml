@@ -124,7 +124,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -187,7 +189,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Prepare ${{ inputs.solver }} for commit
         run: |
           SOLVER="${{ inputs.solver }}"
@@ -294,7 +298,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Install LLVM/Clang 17
         uses: KyleMayes/install-llvm-action@v2
         with:
@@ -421,7 +427,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -459,7 +467,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

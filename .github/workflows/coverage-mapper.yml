@@ -79,7 +79,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
@@ -155,7 +157,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
@@ -229,7 +233,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Get solver commit hash
         id: get-commit
         run: |
@@ -295,7 +301,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

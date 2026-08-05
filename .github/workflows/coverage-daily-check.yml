@@ -56,7 +56,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
+        with:
+          repository: manchester-fme/CAST
+          ref: feature/parametric-coverage-fuzzer
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
