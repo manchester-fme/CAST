@@ -118,8 +118,8 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://REPLACE-ME.lambda-url.us-east-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::REPLACE-ME:role/cast-r2-broker'  # see src/infra/r2-broker/README.md
+          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
 
       - name: Check if rebuild needed
         id: check-state
