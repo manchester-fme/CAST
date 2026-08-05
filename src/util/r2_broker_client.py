@@ -32,6 +32,7 @@ import boto3
 import requests
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
 from botocore.exceptions import ClientError
 
 _S3_XML_NS = {'s3': 'http://s3.amazonaws.com/doc/2006-03-01/'}
@@ -102,7 +103,7 @@ def presign(function_url: str, region: str, credentials: Dict[str, str], operati
     key_field = 'prefix' if operation == 'list_objects_v2' else 'key'
     payload = json.dumps({'operation': operation, key_field: target}).encode('utf-8')
 
-    aws_creds = boto3.session.Credentials(
+    aws_creds = Credentials(
         access_key=credentials['access_key'],
         secret_key=credentials['secret_key'],
         token=credentials['session_token'],
