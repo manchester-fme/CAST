@@ -105,7 +105,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install boto3
+        run: pip install boto3 requests
 
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage
@@ -871,7 +871,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install boto3
+        run: pip install boto3 requests
 
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage
