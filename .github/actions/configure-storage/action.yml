@@ -5,7 +5,7 @@ inputs:
     description: 'Pass toJSON(secrets) from the caller'
     required: true
   storage_provider:
-    description: 'Pass vars.AWS_STORAGE_PROVIDER from the caller ("r2", "aws", or "r2-broker")'
+    description: 'Optional: pass vars.AWS_STORAGE_PROVIDER from the caller to force "r2", "aws", or "r2-broker". Leave unset to auto-detect from whether AWS_ACCESS_KEY_ID is present in secrets.'
     required: false
   r2_broker_function_url:
     description: 'r2-broker only: the broker Lambda Function URL. Not a secret - baked in by the calling reusable workflow.'

@@ -41,7 +41,7 @@ name: Build Solver
 #
 #   jobs:
 #     cast-build:
-#       uses: manchester-fme/CAST/.github/workflows/build.yml@main
+#       uses: manchester-fme/CAST/.github/workflows/build.yml@feature/parametric-coverage-fuzzer
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}

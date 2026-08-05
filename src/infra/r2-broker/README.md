@@ -112,10 +112,13 @@ identical everywhere.
 From any repo (a real fork works, but so does a scratch repo — the broker
 doesn't care who's asking beyond the trust policy), add a workflow with
 `permissions: id-token: write` that calls one of CAST's reusable workflows
-with `solver`/`repo_url` set, and set `vars.AWS_STORAGE_PROVIDER` to
-`r2-broker` in that repo's own Settings → Variables (this is the one
-caller-side choice that can't be baked into CAST's workflows, since CAST's
-own production runs still need `aws`/`r2` with static keys). Watch the run:
+with `solver`/`repo_url` set. Nothing else to configure: `configure_storage.sh`
+auto-detects the caller has no `AWS_ACCESS_KEY_ID` secret (forks never get
+CAST's, since `secrets: inherit` only forwards secrets the caller itself
+has) and falls back to `r2-broker` on its own. CAST's own production runs
+keep resolving to `aws`/`r2` unchanged, since those do have the static
+key set. (`vars.AWS_STORAGE_PROVIDER` still exists to force a specific
+provider if you ever need to override the auto-detect.) Watch the run:
 - `Configure storage backend` should succeed with no AWS/R2 secrets set in
   the calling repo at all.
 - Any step that reads/writes state (build-queue, coverage-mapper output,

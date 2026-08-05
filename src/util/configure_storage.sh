@@ -14,14 +14,26 @@
 # policy is what actually gates access), exchanged at runtime for a scoped,
 # short-lived R2 presigned URL using the job's own GitHub OIDC token.
 #
-# Selected via the AWS_STORAGE_PROVIDER repo variable: "r2" (default), "aws",
-# or "r2-broker".
+# Selected via the AWS_STORAGE_PROVIDER repo variable ("r2", "aws", or
+# "r2-broker") when set. When unset, it's auto-detected: CAST's own runs
+# have AWS_ACCESS_KEY_ID as a repo secret, so they resolve to "r2"
+# (preserving today's default); a caller with no static credential at all
+# (any fork - secrets: inherit only forwards secrets the *caller* actually
+# has, never CAST's) can't produce that variable, so it falls back to
+# "r2-broker" with no configuration needed on the caller's side.
 #
 # Usage (from a workflow step): ./src/util/configure_storage.sh >> "$GITHUB_ENV"
 
 set -euo pipefail
 
-PROVIDER="${AWS_STORAGE_PROVIDER:-r2}"
+PROVIDER="${AWS_STORAGE_PROVIDER:-}"
+if [ -z "$PROVIDER" ]; then
+  if [ -n "${AWS_ACCESS_KEY_ID:-}" ]; then
+    PROVIDER="r2"
+  else
+    PROVIDER="r2-broker"
+  fi
+fi
 
 echo "AWS_STORAGE_PROVIDER=${PROVIDER}"
 

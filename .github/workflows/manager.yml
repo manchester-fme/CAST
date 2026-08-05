@@ -34,7 +34,7 @@ name: Manager
 #
 #   jobs:
 #     cast-fuzz:
-#       uses: manchester-fme/CAST/.github/workflows/manager.yml@main
+#       uses: manchester-fme/CAST/.github/workflows/manager.yml@feature/parametric-coverage-fuzzer
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
