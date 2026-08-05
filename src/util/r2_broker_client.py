@@ -21,12 +21,14 @@ be swapped in via src/util/storage_backend.py's build_client() with no
 changes to s3_state.py/coverage_state.py/fuzzer.py/builder.py/manager.py.
 """
 
+import hashlib
 import json
 import os
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Dict, Optional
+from urllib.parse import urlsplit
 
 import boto3
 import requests
@@ -112,11 +114,18 @@ def presign(function_url: str, region: str, credentials: Dict[str, str], operati
         secret_key=credentials['secret_key'],
         token=credentials['session_token'],
     )
-    request = AWSRequest(method='POST', url=function_url, data=payload, headers={'Content-Type': 'application/json'})
+    headers = {
+        'Content-Type': 'application/json',
+        'Host': urlsplit(function_url).netloc,
+        'X-Amz-Content-SHA256': hashlib.sha256(payload).hexdigest(),
+    }
+    request = AWSRequest(method='POST', url=function_url, data=payload, headers=headers)
     SigV4Auth(aws_creds, 'lambda', region).add_auth(request)
+    debug_headers = dict(request.headers)
+    if 'X-Amz-Security-Token' in debug_headers:
+        debug_headers['X-Amz-Security-Token'] = '<redacted>'
     print(
-        f"DEBUG: signing region={region} url={function_url} "
-        f"authorization={request.headers.get('Authorization', '?')}",
+        f"DEBUG: signing region={region} url={function_url} headers={debug_headers!r}",
         file=sys.stderr,
     )
 
