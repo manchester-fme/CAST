@@ -62,12 +62,18 @@ you'll create in step 4; replace `<ACCOUNT_ID>`/`<REGION>` once known):
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": "lambda:InvokeFunctionUrl",
+      "Action": ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"],
       "Resource": "arn:aws:lambda:<REGION>:<ACCOUNT_ID>:function:cast-r2-broker"
     }
   ]
 }
 ```
+
+Both actions are required — as of October 2025, AWS requires `lambda:InvokeFunction`
+in addition to `lambda:InvokeFunctionUrl` for new/updated function URLs, even
+though the auth flow is entirely over the URL. Omitting it produces a 403
+`Forbidden` from the Lambda Function URL that looks identical to a bad SigV4
+signature, which is a very easy rabbit hole to fall down.
 
 Note the role's ARN once created — this is `R2_BROKER_ROLE_ARN` (step 6).
 It is **not** a secret; the trust policy above is what actually gates
