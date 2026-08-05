@@ -114,6 +114,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Get commit to fuzz and latest build
         id: set-outputs
@@ -286,6 +287,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -352,6 +354,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -528,6 +531,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Fetch oracle binary from S3
         id: fetch-oracle
@@ -825,6 +829,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Validate bugs archive exists
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -880,6 +885,7 @@ jobs:
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
           r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Increment fuzz count and manage schedule
         env:
