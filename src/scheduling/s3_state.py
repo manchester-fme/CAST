@@ -45,7 +45,11 @@ class S3StateManager:
     def __init__(self, bucket: str, solver: str, region: Optional[str] = None, namespace: Optional[str] = None):
         self.bucket = bucket
         self.solver = solver
-        self.region = region or os.getenv('AWS_REGION', 'eu-north-1')
+        # Leave unset (None) unless region was explicitly passed - AWS_REGION
+        # isn't exported under the r2-broker provider (only R2_BROKER_REGION
+        # is), so defaulting it here would incorrectly override the broker's
+        # own region in build_client() below.
+        self.region = region or os.getenv('AWS_REGION')
         self.namespace = namespace
         self.base_path = f"{namespace + '/' if namespace else ''}solvers/{solver}/fuzzing-state"
         try:
@@ -420,7 +424,7 @@ def get_state_manager(solver: str, namespace: Optional[str] = None) -> S3StateMa
     except StorageConfigError as e:
         raise S3StateError(str(e))
     print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
-    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION', 'eu-north-1'), namespace=namespace)
+    return S3StateManager(bucket=bucket, solver=solver, region=os.getenv('AWS_REGION'), namespace=namespace)
 
 
 if __name__ == '__main__':
