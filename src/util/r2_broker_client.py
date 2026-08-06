@@ -94,10 +94,6 @@ def assume_role(oidc_token: str, role_arn: str, session_name: str) -> Dict[str, 
         DurationSeconds=900,
     )
     creds = result['Credentials']
-    print(
-        f"DEBUG: assumed role, AssumedRoleUser.Arn={result.get('AssumedRoleUser', {}).get('Arn', '?')}",
-        file=sys.stderr,
-    )
     return {
         'access_key': creds['AccessKeyId'],
         'secret_key': creds['SecretAccessKey'],
@@ -121,13 +117,6 @@ def presign(function_url: str, region: str, credentials: Dict[str, str], operati
     }
     request = AWSRequest(method='POST', url=function_url, data=payload, headers=headers)
     SigV4Auth(aws_creds, 'lambda', region).add_auth(request)
-    debug_headers = dict(request.headers)
-    if 'X-Amz-Security-Token' in debug_headers:
-        debug_headers['X-Amz-Security-Token'] = '<redacted>'
-    print(
-        f"DEBUG: signing region={region} url={function_url} headers={debug_headers!r}",
-        file=sys.stderr,
-    )
 
     resp = requests.post(function_url, data=payload, headers=dict(request.headers), timeout=15)
     if resp.status_code != 200:
