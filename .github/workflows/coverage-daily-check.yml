@@ -124,6 +124,7 @@ jobs:
 
           python3 src/coverage/count_tests.py "$SOLVER" \
             "$DISCOVERY_FLAG" "$DISCOVERY_TARGET" \
+            --solver-dir "$SOLVER_DIR" \
             --output test-count.json
 
           TEST_COUNT=$(jq -r '.test_count' test-count.json)

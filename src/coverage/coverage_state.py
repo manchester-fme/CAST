@@ -33,14 +33,18 @@ class CoverageStateManager:
     SCHEMA_VERSION = '1.0'
     REBUILD_THRESHOLD_DAYS = 30
 
-    def __init__(self, bucket: str, solver: str, region: str = 'us-east-1', namespace: Optional[str] = None):
+    def __init__(self, bucket: str, solver: str, region: Optional[str] = None, namespace: Optional[str] = None):
         """
         Initialize state manager.
 
         Args:
             bucket: S3 bucket name
             solver: Solver name (any value with a src/solvers/<solver> directory)
-            region: AWS region
+            region: AWS region. Leave unset (None) unless you need to force a
+                specific region - build_client() already resolves the right
+                one per active provider (AWS_REGION for aws/r2,
+                R2_BROKER_REGION for r2-broker); hardcoding one here would
+                incorrectly override R2_BROKER_REGION for r2-broker callers.
             namespace: Optional top-level prefix (e.g. calling repo, "<owner>/<repo>") that
                 isolates this state from the shared production state. See src/scheduling/s3_state.py.
         """
@@ -278,7 +282,11 @@ Environment variables:
         return 1
 
     print(f"ℹ️  Using storage provider: {get_provider()} (bucket: {bucket})", file=sys.stderr)
-    region = os.environ.get('AWS_REGION', 'us-east-1')
+    # Leave region unset here - AWS_REGION isn't exported at all under the
+    # r2-broker provider (only R2_BROKER_REGION is), so defaulting it would
+    # incorrectly override the broker's own region. build_client() already
+    # resolves the right env var for whichever provider is active.
+    region = os.environ.get('AWS_REGION')
 
     # Initialize state manager
     manager = CoverageStateManager(bucket=bucket, solver=args.solver, region=region, namespace=args.namespace)
