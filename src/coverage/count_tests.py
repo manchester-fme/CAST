@@ -12,25 +12,27 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
-def count_cvc5_tests(build_dir: Path) -> Dict:
+def count_cvc5_tests(build_dir: Path, solver_dir: Path) -> Dict:
     """
     Count CVC5 tests using the existing CoverageMapper.
 
     Args:
         build_dir: Path to CVC5 build directory
+        solver_dir: Directory containing coverage/coverage_mapper.py (defaults
+            to src/solvers/cvc5; may point into a fork's own checkout)
 
     Returns:
         Dictionary with test_count, commit_hash, and solver_version
     """
     # Import from existing coverage_mapper
-    cvc5_coverage_path = Path(__file__).parent.parent / 'solvers' / 'cvc5' / 'coverage'
+    cvc5_coverage_path = solver_dir / 'coverage'
     sys.path.insert(0, str(cvc5_coverage_path))
 
     try:
         from coverage_mapper import CoverageMapper
     except ImportError as e:
         print(f"Error: Could not import CoverageMapper from {cvc5_coverage_path}", file=sys.stderr)
-        print(f"Make sure src/cvc5/coverage/coverage_mapper.py exists", file=sys.stderr)
+        print(f"Make sure {cvc5_coverage_path}/coverage_mapper.py exists", file=sys.stderr)
         raise
 
     # Use CoverageMapper to discover tests (same logic as generate_matrix.py)
@@ -59,18 +61,20 @@ def count_cvc5_tests(build_dir: Path) -> Dict:
     }
 
 
-def count_z3_tests(z3test_dir: Path) -> Dict:
+def count_z3_tests(z3test_dir: Path, solver_dir: Path) -> Dict:
     """
     Count Z3 tests using the existing CoverageMapper and filtering logic.
 
     Args:
         z3test_dir: Path to z3test repository
+        solver_dir: Directory containing coverage/{coverage_mapper,generate_matrix}.py
+            (defaults to src/solvers/z3; may point into a fork's own checkout)
 
     Returns:
         Dictionary with test_count, commit_hash, and solver_version
     """
     # Import from existing coverage_mapper and generate_matrix
-    z3_coverage_path = Path(__file__).parent.parent / 'solvers' / 'z3' / 'coverage'
+    z3_coverage_path = solver_dir / 'coverage'
     sys.path.insert(0, str(z3_coverage_path))
 
     try:
@@ -78,7 +82,7 @@ def count_z3_tests(z3test_dir: Path) -> Dict:
         from generate_matrix import filter_tests
     except ImportError as e:
         print(f"Error: Could not import from {z3_coverage_path}", file=sys.stderr)
-        print(f"Make sure src/z3/coverage/ modules exist", file=sys.stderr)
+        print(f"Make sure {z3_coverage_path}/ modules exist", file=sys.stderr)
         raise
 
     # Use CoverageMapper to discover all tests
@@ -148,7 +152,19 @@ Examples:
         help='Output JSON file path (prints to stdout if not specified)'
     )
 
+    parser.add_argument(
+        '--solver-dir',
+        type=Path,
+        help='Directory containing coverage/coverage_mapper.py for this solver. '
+             'Defaults to src/solvers/<solver> (CAST-maintained solvers); pass the '
+             'same solver_dir given to coverage-daily-check.yml/coverage-mapper.yml '
+             'if it points elsewhere (e.g. a fork\'s own checkout).'
+    )
+
     args = parser.parse_args()
+
+    if not args.solver_dir:
+        args.solver_dir = Path('src') / 'solvers' / args.solver
 
     # Validate solver-specific arguments
     if args.solver == 'cvc5':
@@ -166,9 +182,9 @@ Examples:
     print(f"Counting {args.solver.upper()} tests...", file=sys.stderr)
 
     if args.solver == 'cvc5':
-        result = count_cvc5_tests(args.build_dir)
+        result = count_cvc5_tests(args.build_dir, args.solver_dir)
     else:  # z3
-        result = count_z3_tests(args.z3test_dir)
+        result = count_z3_tests(args.z3test_dir, args.solver_dir)
 
     print(f"✅ Found {result['test_count']} tests at commit {result['commit_hash'][:8]}", file=sys.stderr)
 
