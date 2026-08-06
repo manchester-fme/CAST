@@ -241,8 +241,7 @@ jobs:
   skip-fuzzing:
     needs: check-latest-build
     if: |
-      github.event_name == 'schedule' &&
-      (needs.check-latest-build.outputs.fuzzing_needed == 'false' || needs.check-latest-build.outputs.binary_available == 'false')
+      needs.check-latest-build.outputs.fuzzing_needed == 'false' || needs.check-latest-build.outputs.binary_available == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Skip fuzzing
@@ -256,8 +255,7 @@ jobs:
   commit-fuzzer:
     needs: check-latest-build
     if: |
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'schedule' && needs.check-latest-build.outputs.fuzzing_needed == 'true' && needs.check-latest-build.outputs.binary_available == 'true')
+      needs.check-latest-build.outputs.fuzzing_needed == 'true' && needs.check-latest-build.outputs.binary_available == 'true'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.extract-tests.outputs.matrix }}
