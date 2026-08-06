@@ -7,6 +7,9 @@ name: Coverage Daily Check
 # header for the full rationale) - all solver-specific facts (extra repos to
 # clone, pre-discovery setup, test-discovery flag/target) come from
 # src/solvers/<solver>/manifest.json, not from branching in this file.
+# solver_dir defaults to src/solvers/<solver> and, like coverage-mapper.yml,
+# can point inside your own solver checkout instead; it's passed straight
+# through to the coverage-mapper.yml call below.
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Coverage Daily Check -> Run workflow
@@ -29,6 +32,11 @@ on:
         required: false
         type: string
         default: https://github.com/cvc5/cvc5.git
+      solver_dir:
+        description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -41,6 +49,11 @@ on:
         required: false
         type: string
         default: https://github.com/cvc5/cvc5.git
+      solver_dir:
+        description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   check-rebuild-needed:
@@ -62,7 +75,9 @@ jobs:
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           if [ -d "$SOLVER" ]; then
             (cd "$SOLVER" && git fetch origin)
           else
@@ -81,7 +96,9 @@ jobs:
       - name: Run manifest-declared pre-discovery setup
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           PRE_SETUP=$(jq -r '.coverage.pre_discovery_setup // empty' "$MANIFEST")
           if [ -n "$PRE_SETUP" ]; then
             (cd "$SOLVER" && eval "$PRE_SETUP")
@@ -99,7 +116,9 @@ jobs:
         id: count-tests
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           DISCOVERY_FLAG=$(jq -r '.coverage.discovery_flag' "$MANIFEST")
           DISCOVERY_TARGET=$(jq -r '.coverage.discovery_target' "$MANIFEST" | sed "s/{solver}/$SOLVER/")
 
@@ -153,6 +172,7 @@ jobs:
       repo_url: ${{ inputs.repo_url }}
       commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
       test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}
+      solver_dir: ${{ inputs.solver_dir }}
     secrets: inherit
 
   skip-build:

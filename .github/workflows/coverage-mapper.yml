@@ -12,9 +12,13 @@ name: Coverage Mapper
 # `inputs.solver` in this file, every solver-specific fact is declared in
 # that solver's src/solvers/<solver>/manifest.json ("coverage" section) and
 # read generically here via `jq`. Adding a third solver means writing that
-# solver's manifest.json (and generate_matrix.py/join_coverage_mappings.py/
-# run_coverage_builder.sh, which already follow a fixed
-# src/solvers/<solver>/coverage/ naming convention) - no edits to this file.
+# solver's manifest.json plus generate_matrix.py/join_coverage_mappings.py/
+# run_coverage_builder.sh at a fixed <solver_dir>/coverage/ naming convention
+# - no edits to this file. solver_dir defaults to src/solvers/<solver>, but
+# can point inside your own solver checkout (e.g. myproject/cast-profile) so
+# none of that needs to live in CAST at all; the manifest's own
+# coverage.oracle_fetch.path can likewise point into your solver_dir, since
+# it's read as manifest content, not a hardcoded workflow path.
 #
 # Runnable standalone - no other workflow file is required to trigger it:
 #   - From the GitHub UI/API: Actions -> Coverage Mapper -> Run workflow
@@ -51,6 +55,11 @@ on:
         description: 'Pre-counted test count (optional optimization, unused - carried over from the per-solver originals)'
         required: false
         type: number
+      solver_dir:
+        description: 'Directory containing manifest.json/build.sh/coverage scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -67,6 +76,11 @@ on:
         description: 'Optional: commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
         type: string
+      solver_dir:
+        description: 'Directory containing manifest.json/build.sh/coverage scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   discover-tests:
@@ -85,7 +99,9 @@ jobs:
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           if [ -d "$SOLVER" ]; then
             (cd "$SOLVER" && git fetch origin)
           else
@@ -107,7 +123,9 @@ jobs:
       - name: Run manifest-declared pre-discovery setup
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           PRE_SETUP=$(jq -r '.coverage.pre_discovery_setup // empty' "$MANIFEST")
           if [ -n "$PRE_SETUP" ]; then
             (cd "$SOLVER" && eval "$PRE_SETUP")
@@ -126,11 +144,13 @@ jobs:
         id: generate-matrix
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           DISCOVERY_FLAG=$(jq -r '.coverage.discovery_flag' "$MANIFEST")
           DISCOVERY_TARGET=$(jq -r '.coverage.discovery_target' "$MANIFEST" | sed "s/{solver}/$SOLVER/")
 
-          python3 src/solvers/$SOLVER/coverage/generate_matrix.py \
+          python3 "$SOLVER_DIR/coverage/generate_matrix.py" \
             "$DISCOVERY_FLAG" "$DISCOVERY_TARGET" \
             --max-job-time 360 \
             --buffer 60 \
@@ -163,7 +183,9 @@ jobs:
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           if [ -d "$SOLVER" ]; then
             (cd "$SOLVER" && git fetch origin)
           else
@@ -185,7 +207,9 @@ jobs:
       - name: Install manifest-declared oracle
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           ORACLE_SOLVER=$(jq -r '.coverage.oracle_solver // empty' "$MANIFEST")
           if [ -z "$ORACLE_SOLVER" ]; then
             echo "No oracle declared for $SOLVER, skipping"
@@ -208,11 +232,17 @@ jobs:
 
       - name: Build solver with coverage
         run: |
-          ./src/solvers/${{ inputs.solver }}/build.sh --coverage
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          "$SOLVER_DIR/build.sh" --coverage
 
       - name: Run coverage analysis (tests ${{ matrix.start_index }}-${{ matrix.end_index }})
         run: |
-          ${{ github.workspace }}/src/util/measure_time.sh ${{ github.workspace }}/src/solvers/${{ inputs.solver }}/coverage/run_coverage_builder.sh ${{ matrix.start_index }} ${{ matrix.end_index }}
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          "$GITHUB_WORKSPACE/src/util/measure_time.sh" "$GITHUB_WORKSPACE/$SOLVER_DIR/coverage/run_coverage_builder.sh" ${{ matrix.start_index }} ${{ matrix.end_index }}
 
       - name: Upload coverage mapping
         uses: actions/upload-artifact@v4
@@ -252,6 +282,18 @@ jobs:
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "$SOLVER commit hash: $COMMIT_HASH"
 
+      - name: Clone solver repo early if solver_dir needs it
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          # "Get solver commit hash" above only clones when commit_hash isn't
+          # already provided - fine when manifest/scripts live in CAST's own
+          # src/solvers/, but a solver_dir pointing inside the solver's own
+          # checkout needs that checkout to exist before it's read below.
+          if [ -n "$SOLVER_DIR" ] && [ ! -d "$SOLVER" ]; then
+            git clone "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+
       - name: Download all coverage mappings
         uses: actions/download-artifact@v4
         with:
@@ -259,7 +301,10 @@ jobs:
 
       - name: Join coverage mappings
         run: |
-          python3 src/solvers/${{ inputs.solver }}/coverage/join_coverage_mappings.py
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          python3 "$SOLVER_DIR/coverage/join_coverage_mappings.py"
 
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage

@@ -11,7 +11,13 @@ name: Commit Fuzzer
 # oracle, how to fetch it, test root, harness flags, whether the SUT clone
 # can be skipped when a binary is already available) is declared in
 # src/solvers/<solver>/manifest.json's "fuzzer" section, not branched on
-# `inputs.solver` in this file.
+# `inputs.solver` in this file. That manifest (and its co-located build.sh/
+# extract_build_artifacts.sh/commit_fuzzer scripts) doesn't have to live in
+# CAST at all - set solver_dir to a path inside your own solver checkout
+# (e.g. myproject/cast-profile) to bring a wholly new solver without adding
+# anything to this repo. Defaults to src/solvers/<solver>, so z3/cvc5 need no
+# changes. Never applies to the oracle solver, which is always the real
+# CAST-maintained z3/cvc5 production build regardless of solver_dir.
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Commit Fuzzer -> Run workflow
@@ -54,6 +60,16 @@ on:
         required: false
         type: number
         default: 5
+      solver_dir:
+        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself. Never applies to the oracle solver, which is always CAST-maintained.'
+        required: false
+        type: string
+        default: ''
+      max_jobs:
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag)'
+        required: false
+        type: number
+        default: 9
   workflow_dispatch:
     inputs:
       solver:
@@ -79,6 +95,16 @@ on:
         required: false
         type: number
         default: 5
+      solver_dir:
+        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself. Never applies to the oracle solver, which is always CAST-maintained.'
+        required: false
+        type: string
+        default: ''
+      max_jobs:
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag)'
+        required: false
+        type: number
+        default: 9
 
 jobs:
   check-latest-build:
@@ -250,7 +276,9 @@ jobs:
       - name: Clone solver repository and manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           if [ -d "$SOLVER" ]; then
             echo "$SOLVER directory already exists, skipping clone"
           else
@@ -323,8 +351,10 @@ jobs:
         if: steps.download-production-binary.outputs.artifacts_available == 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           if [ -f "artifacts/artifacts.tar.gz" ]; then
-            ./src/solvers/$SOLVER/extract_build_artifacts.sh artifacts/artifacts.tar.gz $SOLVER/build true
+            "$SOLVER_DIR/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build true
             if [ -f "$SOLVER/build/compile_commands.json" ]; then
               echo "✅ Headers and compile_commands.json extracted successfully"
               echo "artifacts_available=true" >> $GITHUB_OUTPUT
@@ -340,9 +370,11 @@ jobs:
         if: steps.extract-artifacts.outputs.artifacts_available != 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           if [ ! -f "$SOLVER/build/compile_commands.json" ]; then
             echo "🔨 Building $SOLVER static binary as fallback to get headers and compile_commands.json"
-            ./src/solvers/$SOLVER/build.sh --static
+            "$SOLVER_DIR/build.sh" --static
           else
             echo "✅ Using artifacts from S3, skipping build"
           fi
@@ -432,18 +464,20 @@ jobs:
         id: extract-tests
         env:
           SKIP_COVERAGE_ENFORCEMENT: "true"
-          MAX_JOBS: 9
+          MAX_JOBS: ${{ inputs.max_jobs }}
         run: |
           SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           COMMIT_ENV_NAME="$(echo "$SOLVER" | tr '[:lower:]' '[:upper:]')_COMMIT_HASH"
           export "$COMMIT_ENV_NAME=${{ steps.get-commit.outputs.commit_hash }}"
 
           cd "$SOLVER"
           # Run commit fuzzer with matrix output (1 commit instead of 50).
-          # Max 9 jobs per solver (18 total for both z3 and cvc5) to leave space for building and management.
+          # Jobs capped at max_jobs (default 9 per solver) to leave space for building and management.
           # Tests per job is calculated dynamically to fit within MAX_JOBS.
-          ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/run_prepare_commit_fuzzer.sh \
-            --python-script ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/prepare_commit_fuzzer.py \
+          "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/run_prepare_commit_fuzzer.sh" \
+            --python-script "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/prepare_commit_fuzzer.py" \
             --coverage-file ../coverage_mapping.json \
             --compile-commands build \
             --output-matrix fuzzer_matrix.json \
@@ -494,10 +528,25 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
+      - name: Clone solver repo early if solver_dir needs it
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          # This job normally skips cloning the full solver repo when a cached
+          # binary is available (see "Clone/build SUT if needed" below) - fine
+          # when manifest/scripts live in CAST's own src/solvers/, but a
+          # solver_dir pointing inside the solver's own checkout needs that
+          # checkout to exist before any of the manifest reads further down.
+          if [ -n "$SOLVER_DIR" ] && [ ! -d "$SOLVER" ]; then
+            git clone "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+
       - name: Install fuzzing dependencies
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           pip install antlr4-python3-runtime==4.9.2
           pip install psutil
           while IFS= read -r pkg; do
@@ -513,7 +562,9 @@ jobs:
       - name: Clone manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
             dir=$(basename "$repo" .git)
@@ -538,7 +589,9 @@ jobs:
         continue-on-error: true
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
           echo "oracle_solver=$ORACLE_SOLVER" >> $GITHUB_OUTPUT
           if [ -z "$ORACLE_SOLVER" ]; then
@@ -606,7 +659,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           ORACLE_SOLVER="${{ steps.fetch-oracle.outputs.oracle_solver }}"
           FALLBACK_TYPE=$(jq -r '.fuzzer.oracle_fetch_fallback.type' "$MANIFEST")
           echo "⚠️ $ORACLE_SOLVER binary from S3 not available, using fallback ($FALLBACK_TYPE)"
@@ -655,9 +710,11 @@ jobs:
             exit 0
           fi
 
-          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$SOLVER/manifest.json" | sed 's#^\./##')
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$SOLVER_DIR/manifest.json" | sed 's#^\./##')
           mkdir -p "$SOLVER/build"
-          ./src/solvers/$SOLVER/extract_build_artifacts.sh artifacts/artifacts.tar.gz $SOLVER/build false
+          "$SOLVER_DIR/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build false
           if [ ! -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
             echo "⚠️ Binary extraction failed"
             echo "sut_binary_available=false" >> $GITHUB_OUTPUT
@@ -670,7 +727,9 @@ jobs:
       - name: Clone/build SUT if needed
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           SKIP_IF_CACHED=$(jq -r '.fuzzer.skip_sut_clone_if_binary_cached' "$MANIFEST")
           BINARY_AVAILABLE="${{ steps.fetch-sut-binary.outputs.sut_binary_available }}"
 
@@ -693,7 +752,7 @@ jobs:
             TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST" | sed 's#^\./##')
             if [ ! -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
               echo "🔨 Building $SOLVER static binary as fallback (binary not available from S3)"
-              ./src/solvers/$SOLVER/build.sh --static
+              "$SOLVER_DIR/build.sh" --static
             else
               echo "✅ Using binary from S3, skipping build"
             fi
@@ -702,7 +761,9 @@ jobs:
       - name: Clean up git repositories to save space
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
             rm -rf "$dir/.git" || true
@@ -712,8 +773,10 @@ jobs:
       - name: Verify solver binaries
         run: |
           SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           ORACLE_SOLVER="${{ steps.fetch-oracle.outputs.oracle_solver }}"
-          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$SOLVER/manifest.json" | sed 's#^\./##')
+          TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$SOLVER_DIR/manifest.json" | sed 's#^\./##')
           if [ -n "$ORACLE_SOLVER" ]; then
             "$ORACLE_SOLVER" --version || echo "⚠️ $ORACLE_SOLVER not on PATH"
           fi
@@ -727,7 +790,9 @@ jobs:
         working-directory: ${{ inputs.solver }}
         run: |
           SOLVER="${{ inputs.solver }}"
-          MANIFEST="../src/solvers/$SOLVER/manifest.json"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="../$SOLVER_DIR/manifest.json"
           JOB_START=$(cat /tmp/job_start_${GITHUB_RUN_ID}_${{ matrix.job_id }}.txt)
           STOP_BUFFER=${{ inputs.stop_buffer_minutes || 5 }}
 
@@ -750,7 +815,7 @@ jobs:
             ARGS+=("$ORACLE_FLAG" "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER")
           fi
 
-          ${{ github.workspace }}/src/solvers/$SOLVER/commit_fuzzer/simple_commit_fuzzer.py "${ARGS[@]}"
+          "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/simple_commit_fuzzer.py" "${ARGS[@]}"
 
       - name: Upload bugs as artifact
         if: always()
