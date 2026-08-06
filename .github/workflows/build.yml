@@ -16,10 +16,13 @@ name: Build Solver
 #   - From another workflow: uses: ./.github/workflows/build.yml (workflow_call)
 #
 # Any solver works as long as build_script accepts --static / --static
-# --coverage and $SOLVER_DIR/collect_build_artifacts.sh exists, where
-# $SOLVER_DIR defaults to src/solvers/<solver> but can be redirected via the
-# solver_dir input to a path inside the solver's own checkout - this repo
-# never needs to contain anything solver-specific for a fork's own solver.
+# --coverage and produces a binary at binary_path - build_script can point
+# anywhere, including inside a fork's own checkout (e.g.
+# myproject/build.sh), so this repo never needs to contain anything
+# solver-specific for a fork's own solver. Packaging the built artifacts
+# (headers, binary, compile_commands.json) is handled generically by
+# src/util/collect_build_artifacts.sh using binary_path alone - no
+# per-solver script needed for that part at all.
 #
 # solver/repo_url/build_script/binary_path default to the cvc5 production
 # values, so a no-argument run builds cvc5. Set force_run: true to build even
@@ -55,9 +58,8 @@ name: Build Solver
 #       with:
 #         solver: myproject
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
-#         build_script: myproject/build.sh
+#         build_script: myproject/build.sh   # lives inside the fork's own checkout
 #         binary_path: build/myproject
-#         solver_dir: myproject/cast-profile   # lives inside the fork's own checkout
 #       secrets: inherit
 
 on:
@@ -83,11 +85,6 @@ on:
         required: false
         type: string
         default: build/bin/cvc5
-      solver_dir:
-        description: 'Directory containing collect_build_artifacts.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
-        required: false
-        type: string
-        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
@@ -119,11 +116,6 @@ on:
         required: false
         type: string
         default: build/bin/cvc5
-      solver_dir:
-        description: 'Directory containing collect_build_artifacts.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
-        required: false
-        type: string
-        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
@@ -258,9 +250,10 @@ jobs:
       - name: Collect build artifacts (headers, binary, compile_commands)
         run: |
           SOLVER="${{ inputs.solver }}"
-          SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          "$SOLVER_DIR/collect_build_artifacts.sh" "$SOLVER/build" .artifacts
+          # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
+          # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
+          BINARY_RELPATH=$(echo "${{ inputs.binary_path }}" | sed 's#^build/##')
+          "$GITHUB_WORKSPACE/src/util/collect_build_artifacts.sh" "$SOLVER/build" .artifacts "$BINARY_RELPATH"
 
       - name: Compress collected artifacts
         run: |
@@ -391,9 +384,10 @@ jobs:
       - name: Collect build artifacts (headers, binary, compile_commands)
         run: |
           SOLVER="${{ inputs.solver }}"
-          SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          "$SOLVER_DIR/collect_build_artifacts.sh" "$SOLVER/build" .artifacts
+          # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
+          # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
+          BINARY_RELPATH=$(echo "${{ inputs.binary_path }}" | sed 's#^build/##')
+          "$GITHUB_WORKSPACE/src/util/collect_build_artifacts.sh" "$SOLVER/build" .artifacts "$BINARY_RELPATH"
 
       - name: Compress collected artifacts
         run: |

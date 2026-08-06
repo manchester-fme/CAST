@@ -11,12 +11,13 @@ name: Commit Fuzzer
 # oracle, how to fetch it, test root, harness flags, whether the SUT clone
 # can be skipped when a binary is already available) is declared in
 # src/solvers/<solver>/manifest.json's "fuzzer" section, not branched on
-# `inputs.solver` in this file. That manifest (and its co-located build.sh/
-# extract_build_artifacts.sh/commit_fuzzer scripts) doesn't have to live in
-# CAST at all - set solver_dir to a path inside your own solver checkout
-# (e.g. myproject/cast-profile) to bring a wholly new solver without adding
-# anything to this repo. Defaults to src/solvers/<solver>, so z3/cvc5 need no
-# changes.
+# `inputs.solver` in this file. That manifest (and its co-located build.sh)
+# doesn't have to live in CAST at all - set solver_dir to a path inside your
+# own solver checkout (e.g. myproject/cast-profile) to bring a wholly new
+# solver without adding anything to this repo. Defaults to src/solvers/<solver>,
+# so z3/cvc5 need no changes. prepare_commit_fuzzer.py/simple_commit_fuzzer.py
+# themselves are CAST-owned (src/commit_fuzzer/) - solver-specific facts flow
+# in as manifest-read CLI flags, not as a per-solver copy of these scripts.
 #
 # By default (no oracle_solver_dir), the oracle is the manifest-declared
 # stable release of the oracle solver (e.g. cvc5's oracle is the z3-solver
@@ -72,12 +73,12 @@ on:
         type: number
         default: 5
       solver_dir:
-        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
         required: false
         type: string
         default: ''
       oracle_solver_dir:
-        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
+        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -117,12 +118,12 @@ on:
         type: number
         default: 5
       solver_dir:
-        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
         required: false
         type: string
         default: ''
       oracle_solver_dir:
-        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
+        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -385,7 +386,8 @@ jobs:
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           if [ -f "artifacts/artifacts.tar.gz" ]; then
-            "$SOLVER_DIR/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build true
+            BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$SOLVER_DIR/manifest.json" | sed 's#^\./build/##')
+            "$GITHUB_WORKSPACE/src/util/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build "$BINARY_RELPATH" true
             if [ -f "$SOLVER/build/compile_commands.json" ]; then
               echo "✅ Headers and compile_commands.json extracted successfully"
               echo "artifacts_available=true" >> $GITHUB_OUTPUT
@@ -500,19 +502,26 @@ jobs:
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          COMMIT_ENV_NAME="$(echo "$SOLVER" | tr '[:lower:]' '[:upper:]')_COMMIT_HASH"
-          export "$COMMIT_ENV_NAME=${{ steps.get-commit.outputs.commit_hash }}"
+          MANIFEST="$GITHUB_WORKSPACE/$SOLVER_DIR/manifest.json"
+          NAMESPACE_PREFIX=$(jq -r '.fuzzer.namespace_prefix // empty' "$MANIFEST")
+          CLANG_ARGS_JSON=$(jq -c '.fuzzer.clang_args // []' "$MANIFEST")
 
           cd "$SOLVER"
           # Run commit fuzzer with matrix output (1 commit instead of 50).
           # Jobs capped at max_jobs (default 9 per solver) to leave space for building and management.
           # Tests per job is calculated dynamically to fit within MAX_JOBS.
-          "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/run_prepare_commit_fuzzer.sh" \
-            --python-script "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/prepare_commit_fuzzer.py" \
+          # prepare_commit_fuzzer.py/run_prepare_commit_fuzzer.sh are CAST-owned
+          # (src/commit_fuzzer/) - solver-specific facts flow in as manifest-read
+          # flags below, not as a per-solver copy of these scripts in solver_dir.
+          "$GITHUB_WORKSPACE/src/commit_fuzzer/run_prepare_commit_fuzzer.sh" \
+            --python-script "$GITHUB_WORKSPACE/src/commit_fuzzer/prepare_commit_fuzzer.py" \
             --coverage-file ../coverage_mapping.json \
             --compile-commands build \
             --output-matrix fuzzer_matrix.json \
             --max-jobs $MAX_JOBS \
+            --commit-hash "${{ steps.get-commit.outputs.commit_hash }}" \
+            --namespace-prefix "$NAMESPACE_PREFIX" \
+            --clang-args-json "$CLANG_ARGS_JSON" \
             1
 
           if [ ! -f "fuzzer_matrix.json" ]; then
@@ -702,8 +711,9 @@ jobs:
           fi
 
           ORACLE_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$ORACLE_SOLVER_DIR/manifest.json" | sed 's#^\./##')
+          ORACLE_BUILD_DIR_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$ORACLE_SOLVER_DIR/manifest.json" | sed 's#^\./build/##')
           mkdir -p "$ORACLE_SOLVER/build"
-          "$ORACLE_SOLVER_DIR/extract_build_artifacts.sh" artifacts-oracle/artifacts.tar.gz $ORACLE_SOLVER/build false
+          "$GITHUB_WORKSPACE/src/util/extract_build_artifacts.sh" artifacts-oracle/artifacts.tar.gz $ORACLE_SOLVER/build "$ORACLE_BUILD_DIR_RELPATH" false
           if [ ! -f "$ORACLE_SOLVER/$ORACLE_BINARY_RELPATH" ]; then
             echo "⚠️ $ORACLE_SOLVER binary extraction failed"
             echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
@@ -778,8 +788,9 @@ jobs:
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           TARGET_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$SOLVER_DIR/manifest.json" | sed 's#^\./##')
+          TARGET_BUILD_DIR_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$SOLVER_DIR/manifest.json" | sed 's#^\./build/##')
           mkdir -p "$SOLVER/build"
-          "$SOLVER_DIR/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build false
+          "$GITHUB_WORKSPACE/src/util/extract_build_artifacts.sh" artifacts/artifacts.tar.gz $SOLVER/build "$TARGET_BUILD_DIR_RELPATH" false
           if [ ! -f "$SOLVER/$TARGET_BINARY_RELPATH" ]; then
             echo "⚠️ Binary extraction failed"
             echo "sut_binary_available=false" >> $GITHUB_OUTPUT
@@ -868,6 +879,9 @@ jobs:
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
 
           ARGS=(
+            # =-joined: argparse rejects a plain "--target-flag --cvc5-path"
+            # pairing since --cvc5-path itself looks like another option.
+            "--target-flag=$TARGET_FLAG"
             --tests-json '${{ toJson(matrix.tests) }}'
             --job-id '${{ matrix.job_id }}'
             --tests-root "$TESTS_ROOT"
@@ -877,10 +891,20 @@ jobs:
             "$TARGET_FLAG" "$TARGET_BINARY_PATH"
           )
           if [ -n "$ORACLE_FLAG" ] && [ -n "$ORACLE_SOLVER" ]; then
-            ARGS+=("$ORACLE_FLAG" "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER")
+            # The S3-fetched/script-fallback paths both place a real binary at
+            # oracle-bin/$ORACLE_SOLVER; the pip fallback (see "Install oracle
+            # fallback if unavailable") doesn't - it just installs the
+            # solver's own package onto PATH, so fall back to the bare name
+            # for simple_commit_fuzzer.py's PATH-search resolution.
+            if [ -x "$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER" ]; then
+              ORACLE_VALUE="$GITHUB_WORKSPACE/oracle-bin/$ORACLE_SOLVER"
+            else
+              ORACLE_VALUE="$ORACLE_SOLVER"
+            fi
+            ARGS+=("--oracle-flag=$ORACLE_FLAG" "$ORACLE_FLAG" "$ORACLE_VALUE")
           fi
 
-          "$GITHUB_WORKSPACE/$SOLVER_DIR/commit_fuzzer/simple_commit_fuzzer.py" "${ARGS[@]}"
+          "$GITHUB_WORKSPACE/src/commit_fuzzer/simple_commit_fuzzer.py" "${ARGS[@]}"
 
       - name: Upload bugs as artifact
         if: always()

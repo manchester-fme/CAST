@@ -12,13 +12,15 @@ name: Coverage Mapper
 # `inputs.solver` in this file, every solver-specific fact is declared in
 # that solver's src/solvers/<solver>/manifest.json ("coverage" section) and
 # read generically here via `jq`. Adding a third solver means writing that
-# solver's manifest.json plus generate_matrix.py/join_coverage_mappings.py/
-# run_coverage_builder.sh at a fixed <solver_dir>/coverage/ naming convention
-# - no edits to this file. solver_dir defaults to src/solvers/<solver>, but
-# can point inside your own solver checkout (e.g. myproject/cast-profile) so
-# none of that needs to live in CAST at all; the manifest's own
-# coverage.oracle_fetch.path can likewise point into your solver_dir, since
-# it's read as manifest content, not a hardcoded workflow path.
+# solver's manifest.json plus coverage/{coverage_mapper,generate_matrix}.py
+# at a fixed <solver_dir>/coverage/ naming convention - no edits to this
+# file. solver_dir defaults to src/solvers/<solver>, but can point inside
+# your own solver checkout (e.g. myproject/cast-profile) so none of that
+# needs to live in CAST at all; the manifest's own coverage.oracle_fetch.path
+# can likewise point into your solver_dir, since it's read as manifest
+# content, not a hardcoded workflow path. join_coverage_mappings.py and
+# run_coverage_builder.sh are CAST-owned (src/coverage/) - fully generic,
+# not something a third solver needs to bring its own copy of.
 #
 # Runnable standalone - no other workflow file is required to trigger it:
 #   - From the GitHub UI/API: Actions -> Coverage Mapper -> Run workflow
@@ -242,7 +244,7 @@ jobs:
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          "$GITHUB_WORKSPACE/src/util/measure_time.sh" "$GITHUB_WORKSPACE/$SOLVER_DIR/coverage/run_coverage_builder.sh" ${{ matrix.start_index }} ${{ matrix.end_index }}
+          "$GITHUB_WORKSPACE/src/util/measure_time.sh" "$GITHUB_WORKSPACE/src/coverage/run_coverage_builder.sh" "$SOLVER" "$SOLVER_DIR" ${{ matrix.start_index }} ${{ matrix.end_index }}
 
       - name: Upload coverage mapping
         uses: actions/upload-artifact@v4
@@ -301,10 +303,9 @@ jobs:
 
       - name: Join coverage mappings
         run: |
-          SOLVER="${{ inputs.solver }}"
-          SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          python3 "$SOLVER_DIR/coverage/join_coverage_mappings.py"
+          # Fully solver-agnostic (just merges JSON files by directory walk) -
+          # CAST-owned, not part of solver_dir's per-solver profile.
+          python3 "$GITHUB_WORKSPACE/src/coverage/join_coverage_mappings.py"
 
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage
