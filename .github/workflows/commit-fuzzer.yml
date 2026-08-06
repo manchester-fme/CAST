@@ -16,8 +16,16 @@ name: Commit Fuzzer
 # CAST at all - set solver_dir to a path inside your own solver checkout
 # (e.g. myproject/cast-profile) to bring a wholly new solver without adding
 # anything to this repo. Defaults to src/solvers/<solver>, so z3/cvc5 need no
-# changes. Never applies to the oracle solver, which is always the real
-# CAST-maintained z3/cvc5 production build regardless of solver_dir.
+# changes.
+#
+# The oracle solver's manifest.json/extract_build_artifacts.sh location is
+# separately redirectable via oracle_solver_dir (defaults to
+# src/solvers/<oracle_solver>, same convention as solver_dir) since the
+# oracle isn't necessarily CAST-maintained either - e.g. cvc5's oracle is z3,
+# and z3's own profile may live in z3's fork rather than in CAST. This only
+# redirects the *tooling* used to interpret the downloaded build; it does not
+# change what gets downloaded (see below) - a fork still can't substitute its
+# own oracle binary.
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Commit Fuzzer -> Run workflow
@@ -61,7 +69,12 @@ on:
         type: number
         default: 5
       solver_dir:
-        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself. Never applies to the oracle solver, which is always CAST-maintained.'
+        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        required: false
+        type: string
+        default: ''
+      oracle_solver_dir:
+        description: 'Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5). Defaults to src/solvers/<oracle_solver>; set to a path inside a checkout you control if the oracle''s own profile does not live in CAST. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -96,7 +109,12 @@ on:
         type: number
         default: 5
       solver_dir:
-        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself. Never applies to the oracle solver, which is always CAST-maintained.'
+        description: 'Directory containing manifest.json and the build.sh/extract_build_artifacts.sh/commit_fuzzer scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        required: false
+        type: string
+        default: ''
+      oracle_solver_dir:
+        description: 'Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5). Defaults to src/solvers/<oracle_solver>; set to a path inside a checkout you control if the oracle''s own profile does not live in CAST. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -599,6 +617,8 @@ jobs:
             echo "oracle_binary_available=true" >> $GITHUB_OUTPUT
             exit 0
           fi
+          ORACLE_SOLVER_DIR="${{ inputs.oracle_solver_dir }}"
+          if [ -z "$ORACLE_SOLVER_DIR" ]; then ORACLE_SOLVER_DIR="src/solvers/$ORACLE_SOLVER"; fi
 
           echo "🔍 Getting latest $ORACLE_SOLVER build from S3 (oracle, unnamespaced)..."
           LATEST_ORACLE_BUILD=$(python -c "from src.scheduling.s3_state import get_state_manager; m = get_state_manager('$ORACLE_SOLVER'); print(m.get_latest_available_build() or '')" 2>&1)
@@ -636,9 +656,9 @@ jobs:
             exit 0
           fi
 
-          ORACLE_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "src/solvers/$ORACLE_SOLVER/manifest.json" | sed 's#^\./##')
+          ORACLE_BINARY_RELPATH=$(jq -r '.fuzzer.target_binary_path' "$ORACLE_SOLVER_DIR/manifest.json" | sed 's#^\./##')
           mkdir -p "$ORACLE_SOLVER/build"
-          ./src/solvers/$ORACLE_SOLVER/extract_build_artifacts.sh artifacts-oracle/artifacts.tar.gz $ORACLE_SOLVER/build false
+          "$ORACLE_SOLVER_DIR/extract_build_artifacts.sh" artifacts-oracle/artifacts.tar.gz $ORACLE_SOLVER/build false
           if [ ! -f "$ORACLE_SOLVER/$ORACLE_BINARY_RELPATH" ]; then
             echo "⚠️ $ORACLE_SOLVER binary extraction failed"
             echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
