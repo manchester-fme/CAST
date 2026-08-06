@@ -18,14 +18,17 @@ name: Commit Fuzzer
 # anything to this repo. Defaults to src/solvers/<solver>, so z3/cvc5 need no
 # changes.
 #
-# The oracle solver's manifest.json/extract_build_artifacts.sh location is
-# separately redirectable via oracle_solver_dir (defaults to
-# src/solvers/<oracle_solver>, same convention as solver_dir) since the
-# oracle isn't necessarily CAST-maintained either - e.g. cvc5's oracle is z3,
-# and z3's own profile may live in z3's fork rather than in CAST. This only
-# redirects the *tooling* used to interpret the downloaded build; it does not
-# change what gets downloaded (see below) - a fork still can't substitute its
-# own oracle binary.
+# By default (no oracle_solver_dir), the oracle is the manifest-declared
+# stable release of the oracle solver (e.g. cvc5's oracle is the z3-solver
+# PyPI package - a released Z3, not a CAST-tracked commit build; symmetrically
+# z3's oracle is a released cvc5). This is deliberate, not a fallback for a
+# failed lookup: a continuously-rebuilt bleeding-edge oracle would make
+# differential-testing failures harder to attribute, so the default targets
+# something stable and versioned. Opting into a CAST/fork-tracked oracle
+# build instead (e.g. z3's own profile living in z3's fork) is done by
+# setting oracle_solver_dir (defaults to src/solvers/<oracle_solver>, same
+# convention as solver_dir) - this only redirects the *tooling* used to
+# interpret that downloaded build, not what gets downloaded (see below).
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Commit Fuzzer -> Run workflow
@@ -74,7 +77,7 @@ on:
         type: string
         default: ''
       oracle_solver_dir:
-        description: 'Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5). Defaults to src/solvers/<oracle_solver>; set to a path inside a checkout you control if the oracle''s own profile does not live in CAST. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
+        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -119,7 +122,7 @@ on:
         type: string
         default: ''
       oracle_solver_dir:
-        description: 'Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5). Defaults to src/solvers/<oracle_solver>; set to a path inside a checkout you control if the oracle''s own profile does not live in CAST. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
+        description: 'Opt into a CAST/fork-tracked commit build as the oracle instead of the manifest-declared stable release (the default when this is left empty). Directory containing manifest.json and extract_build_artifacts.sh for the oracle solver declared in this solver''s manifest.json (e.g. z3, for cvc5); defaults to src/solvers/<oracle_solver>. Only redirects the tooling used to interpret the downloaded build - the oracle binary itself always comes from the real upstream production build, never from a fork.'
         required: false
         type: string
         default: ''
@@ -649,7 +652,18 @@ jobs:
             exit 0
           fi
           ORACLE_SOLVER_DIR="${{ inputs.oracle_solver_dir }}"
-          if [ -z "$ORACLE_SOLVER_DIR" ]; then ORACLE_SOLVER_DIR="src/solvers/$ORACLE_SOLVER"; fi
+          if [ -z "$ORACLE_SOLVER_DIR" ]; then
+            # No explicit oracle_solver_dir means no one configured a CAST-hosted
+            # or forked profile for $ORACLE_SOLVER to interpret a production S3
+            # build with - go straight to the manifest's declared stable-release
+            # oracle (oracle_fetch_fallback) rather than attempting a build we
+            # have no way to unpack. This is deliberate, not just "S3 lookup
+            # failed": the oracle is the released version of $ORACLE_SOLVER by
+            # default, a CAST/fork-tracked commit build is the opt-in case.
+            echo "No oracle_solver_dir set - using the manifest-declared stable release of $ORACLE_SOLVER"
+            echo "oracle_binary_available=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           echo "🔍 Getting latest $ORACLE_SOLVER build from S3 (oracle, unnamespaced)..."
           LATEST_ORACLE_BUILD=$(python -c "from src.scheduling.s3_state import get_state_manager; m = get_state_manager('$ORACLE_SOLVER'); print(m.get_latest_available_build() or '')" 2>&1)
