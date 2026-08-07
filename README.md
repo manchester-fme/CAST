@@ -1,4 +1,7 @@
-# CAST 
+# CAST
+
+[![CI](https://github.com/manchester-fme/CAST/actions/workflows/ci.yml/badge.svg)](https://github.com/manchester-fme/CAST/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 Commit-Aware Solver Testing (CAST) continuously tests your SMT solver: every new 
 commit gets built, fuzzed against a reference solver (e.g., cvc5) to catch bugs.
