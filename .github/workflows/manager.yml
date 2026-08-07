@@ -33,7 +33,7 @@ name: Manager
 #
 #   jobs:
 #     cast-fuzz:
-#       uses: manchester-fme/CAST/.github/workflows/manager.yml@feature/parametric-coverage-fuzzer
+#       uses: manchester-fme/CAST/.github/workflows/manager.yml@main
 #       with:
 #         solver: cvc5
 #         repo_url: ${{ github.server_url }}/${{ github.repository }}
@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: feature/parametric-coverage-fuzzer
+          ref: main
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
