@@ -1,0 +1,42 @@
+{
+  "coverage": {
+    "repo_url": "https://github.com/<YOUR_ORG>/<YOUR_SOLVER>.git",
+    "extra_repos": [],
+    "setup_command": "<shell command to configure/prepare the build before tests can be listed, e.g. ./configure.sh>",
+    "list_tests_command": "<shell command whose stdout is one test name per line, run from your repo root>",
+    "run_test_command": "<shell command containing a literal {test} placeholder that runs one test; exit 0 = passed>",
+    "target_jobs": 4,
+    "avg_test_time_seconds": 10.0,
+    "oracle_solver": null,
+    "oracle_fetch": null
+  },
+  "fuzzer": {
+    "repo_url": "https://github.com/<YOUR_ORG>/<YOUR_SOLVER>.git",
+    "extra_repos": [],
+    "extra_pip_packages": [],
+    "tests_root": "<path to your seed test corpus, relative to your repo root>",
+    "list_tests_command": "<shell command whose stdout is one seed-test path per line, relative to tests_root>",
+    "target_binary_path": "./build/bin/<YOUR_SOLVER>",
+    "oracle_solver": "<name of the reference solver to diff against, e.g. z3>",
+    "oracle_fetch_fallback": {
+      "type": "pip",
+      "package": "<pip package for the reference solver, e.g. z3-solver>"
+    },
+    "resources": {
+      "max_workers": null,
+      "max_jobs": 9,
+      "cpu_warning": 85.0,
+      "cpu_critical": 95.0,
+      "memory_warning_available_gb": 2.0,
+      "memory_critical_available_gb": 0.5,
+      "check_interval": 2,
+      "pause_duration": 10,
+      "max_process_memory_mb": 2048,
+      "max_process_memory_mb_warning": 1536
+    },
+    "skip_sut_clone_if_binary_cached": false,
+    "git_cleanup_dirs": ["<YOUR_SOLVER>"],
+    "namespace_prefix": "<your_solver::>",
+    "clang_args": []
+  }
+}

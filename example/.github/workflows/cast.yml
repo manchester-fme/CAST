@@ -1,0 +1,82 @@
+name: CAST
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        required: true
+        type: choice
+        options:
+          - manager
+          - build
+          - coverage
+          - daily-check
+          - fuzz
+      commit_hash:
+        description: 'Required for fuzz; bypasses queue/schedule lookup for manager and build; ignored on a scheduled run'
+        required: false
+        type: string
+  schedule:
+    - cron: '*/15 * * * *'        # manager: check for new commits
+    - cron: '5,35 * * * *'        # build: build queued commits
+    - cron: '0 0 1 * *'           # coverage: monthly full coverage rebuild
+    - cron: '0 0 * * *'           # daily-check: daily rebuild-needed check
+    - cron: '45 0,6,12,18 * * *'  # fuzz: fuzz the latest commit
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+jobs:
+  manager:
+    if: inputs.action == 'manager' || github.event.schedule == '*/15 * * * *'
+    uses: manchester-fme/CAST/.github/workflows/manager.yml@main
+    with:
+      solver: YOUR_SOLVER
+      repo_url: ${{ github.server_url }}/${{ github.repository }}
+      commit_hash: ${{ inputs.commit_hash }}
+    secrets: inherit
+
+  build:
+    if: inputs.action == 'build' || github.event.schedule == '5,35 * * * *'
+    uses: manchester-fme/CAST/.github/workflows/build.yml@main
+    with:
+      solver: YOUR_SOLVER
+      repo_url: ${{ github.server_url }}/${{ github.repository }}
+      build_script: YOUR_SOLVER/.cast/build.sh
+      binary_path: build/bin/YOUR_SOLVER
+      commit_hash: ${{ inputs.commit_hash }}
+      force_run: true
+    secrets: inherit
+
+  coverage:
+    if: inputs.action == 'coverage' || github.event.schedule == '0 0 1 * *'
+    uses: manchester-fme/CAST/.github/workflows/coverage-mapper.yml@main
+    with:
+      solver: YOUR_SOLVER
+      repo_url: ${{ github.server_url }}/${{ github.repository }}
+      solver_dir: YOUR_SOLVER/.cast
+    secrets: inherit
+
+  daily-check:
+    if: inputs.action == 'daily-check' || github.event.schedule == '0 0 * * *'
+    uses: manchester-fme/CAST/.github/workflows/coverage-daily-check.yml@main
+    with:
+      solver: YOUR_SOLVER
+      repo_url: ${{ github.server_url }}/${{ github.repository }}
+      solver_dir: YOUR_SOLVER/.cast
+    secrets: inherit
+
+  fuzz:
+    if: inputs.action == 'fuzz' || github.event.schedule == '45 0,6,12,18 * * *'
+    uses: manchester-fme/CAST/.github/workflows/commit-fuzzer.yml@main
+    with:
+      solver: YOUR_SOLVER
+      repo_url: ${{ github.server_url }}/${{ github.repository }}
+      solver_dir: YOUR_SOLVER/.cast
+      commit_hash: ${{ inputs.commit_hash }}
+      # no_coverage: true   # uncomment to fuzz every test instead of the
+                             # coverage-selected subset (no coverage
+                             # mapping needed first)
+    secrets: inherit
