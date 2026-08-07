@@ -1,0 +1,64 @@
+name: CI
+
+# Basic sanity checks for CAST's own code - no test suite exists yet, so
+# this catches the class of mistakes that would otherwise only surface at
+# actual workflow-run time: invalid workflow/JSON syntax, Python that
+# doesn't even parse, shell scripts with a syntax error.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate workflow YAML
+        run: |
+          fail=0
+          for f in .github/workflows/*.yml; do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" \
+              && echo "✅ $f" \
+              || { echo "❌ $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: Validate JSON files
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            python3 -c "import json; json.load(open('$f'))" \
+              && echo "✅ $f" \
+              || { echo "❌ $f"; fail=1; }
+          done < <(find . -name "*.json" -not -path "./.git/*" -print0)
+          exit $fail
+
+      - name: Compile-check Python
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            python3 -m py_compile "$f" \
+              && echo "✅ $f" \
+              || { echo "❌ $f"; fail=1; }
+          done < <(find src -name "*.py" -print0)
+          exit $fail
+
+      - name: Syntax-check shell scripts
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            bash -n "$f" \
+              && echo "✅ $f" \
+              || { echo "❌ $f"; fail=1; }
+          done < <(find . -name "*.sh" -not -path "./.git/*" -print0)
+          exit $fail
