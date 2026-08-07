@@ -24,10 +24,12 @@ name: Build Solver
 # src/util/collect_build_artifacts.sh using binary_path alone - no
 # per-solver script needed for that part at all.
 #
-# solver/repo_url/build_script/binary_path default to the cvc5 production
-# values, so a no-argument run builds cvc5. Set force_run: true to build even
-# when the queue is empty and no commit_hash is given - it resolves and
-# queues the latest commit on repo_url instead of hitting skip-build.
+# solver/repo_url/build_script/binary_path are required - deliberately no
+# default, since state below is namespaced per solver and a silently-assumed
+# solver would misattribute another caller's build state to it. Set
+# force_run: true to build even when the queue is empty and no commit_hash
+# is given - it resolves and queues the latest commit on repo_url instead of
+# hitting skip-build.
 #
 # State (build-queue and uploaded artifacts) is always namespaced by the
 # calling repository (`github.repository`, e.g. `manchester-fme/CAST` or
@@ -38,10 +40,8 @@ name: Build Solver
 # top-level prefix in the bucket (e.g.
 # `manchester-fme/CAST/solvers/cvc5/builds/v2/production/...`), so every
 # caller gets its own directory and a fork's state can never collide with
-# another caller's. A no-argument run of this workflow from within CAST
-# itself manages state under CAST's own namespace, not whatever
-# bare/unnamespaced path an older direct caller (e.g. cvc5-build.yml) might
-# use.
+# another caller's - not whatever bare/unnamespaced path an older direct
+# caller (e.g. cvc5-build.yml) might use.
 #
 # Calling from a fork is just:
 #
@@ -67,24 +67,20 @@ on:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       build_script:
         description: 'Path to the solver build script'
-        required: false
+        required: true
         type: string
-        default: ./src/solvers/cvc5/build.sh
       binary_path:
         description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: false
+        required: true
         type: string
-        default: build/bin/cvc5
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
@@ -98,24 +94,20 @@ on:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       build_script:
         description: 'Path to the solver build script'
-        required: false
+        required: true
         type: string
-        default: ./src/solvers/cvc5/build.sh
       binary_path:
         description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: false
+        required: true
         type: string
-        default: build/bin/cvc5
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false

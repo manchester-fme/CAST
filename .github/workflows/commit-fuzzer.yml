@@ -8,7 +8,7 @@ name: Commit Fuzzer
 # `z3test` repo and has a binary-caching optimization cvc5 doesn't. Same
 # manifest-driven approach as coverage-mapper.yml (see that file's header
 # for the full rationale) - every solver-specific fact (which solver is the
-# oracle, how to fetch it, test root, harness flags, whether the SUT clone
+# oracle, how to fetch it, test root, resource limits, whether the SUT clone
 # can be skipped when a binary is already available) is declared in
 # src/solvers/<solver>/manifest.json's "fuzzer" section, not branched on
 # `inputs.solver` in this file. That manifest (and its co-located build.sh)
@@ -43,22 +43,21 @@ name: Commit Fuzzer
 # build (or the manifest-declared fallback), regardless of who's calling,
 # so a fork is always validated against the real oracle, not another fork.
 #
-# solver/repo_url default to the cvc5 production values, so a no-argument
-# run fuzzes cvc5 under this workflow's own (forced) namespace.
+# solver/repo_url are required - deliberately no default, so no caller can
+# silently inherit another solver's state under this workflow's own (forced)
+# namespace.
 
 on:
   workflow_call:
     inputs:
       solver:
         description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to fuzz'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -96,14 +95,12 @@ on:
     inputs:
       solver:
         description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to fuzz'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -871,24 +868,28 @@ jobs:
           STOP_BUFFER=${{ inputs.stop_buffer_minutes || 5 }}
 
           TESTS_ROOT=$(jq -r '.fuzzer.tests_root' "$MANIFEST")
-          TARGET_FLAG=$(jq -r '.fuzzer.target_flag' "$MANIFEST")
           TARGET_BINARY_PATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST")
-          ORACLE_FLAG=$(jq -r '.fuzzer.oracle_flag // empty' "$MANIFEST")
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
+          MAX_WORKERS=$(jq -r '.fuzzer.resources.max_workers // empty' "$MANIFEST")
+          # max_workers is handled above via --workers, not part of
+          # RESOURCE_CONFIG - drop it so simple_commit_fuzzer.py doesn't warn
+          # about an "unknown" key on every run.
+          RESOURCES_JSON=$(jq -c '(.fuzzer.resources // {}) | del(.max_workers)' "$MANIFEST")
 
           ARGS=(
-            # =-joined: argparse rejects a plain "--target-flag --cvc5-path"
-            # pairing since --cvc5-path itself looks like another option.
-            "--target-flag=$TARGET_FLAG"
             --tests-json '${{ toJson(matrix.tests) }}'
             --job-id '${{ matrix.job_id }}'
             --tests-root "$TESTS_ROOT"
             --job-start-time "$JOB_START"
             --stop-buffer-minutes "$STOP_BUFFER"
             --iterations 250
-            "$TARGET_FLAG" "$TARGET_BINARY_PATH"
+            --target-path "$TARGET_BINARY_PATH"
+            --resource-config-json "$RESOURCES_JSON"
           )
-          if [ -n "$ORACLE_FLAG" ] && [ -n "$ORACLE_SOLVER" ]; then
+          if [ -n "$MAX_WORKERS" ]; then
+            ARGS+=(--workers "$MAX_WORKERS")
+          fi
+          if [ -n "$ORACLE_SOLVER" ]; then
             # The S3-fetched/script-fallback paths both place a real binary at
             # oracle-bin/$ORACLE_SOLVER; the pip fallback (see "Install oracle
             # fallback if unavailable") doesn't - it just installs the
@@ -899,7 +900,7 @@ jobs:
             else
               ORACLE_VALUE="$ORACLE_SOLVER"
             fi
-            ARGS+=("--oracle-flag=$ORACLE_FLAG" "$ORACLE_FLAG" "$ORACLE_VALUE")
+            ARGS+=(--oracle-path "$ORACLE_VALUE")
           fi
 
           "$GITHUB_WORKSPACE/src/commit_fuzzer/simple_commit_fuzzer.py" "${ARGS[@]}"

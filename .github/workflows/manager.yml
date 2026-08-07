@@ -14,9 +14,9 @@ name: Manager
 #     repo_url=https://github.com/Z3Prover/z3.git`
 #   - From another workflow: uses: ./.github/workflows/manager.yml (workflow_call)
 #
-# solver/repo_url default to the cvc5 production values, so a no-argument run
-# manages cvc5 - but see the namespacing note below: which cvc5 state it
-# manages depends on who's calling.
+# solver/repo_url are required - deliberately no default (see namespacing
+# note below: state is namespaced per solver, so silently defaulting to any
+# one solver risks misattributing another caller's state to it).
 #
 # State is always namespaced by the calling repository (`github.repository`,
 # e.g. `manchester-fme/CAST` or `someuser/cvc5`) - not just for forks, for
@@ -26,9 +26,8 @@ name: Manager
 # The namespace is the top-level prefix in the bucket (e.g.
 # `manchester-fme/CAST/solvers/cvc5/fuzzing-state/...`), so every caller gets
 # its own directory and a fork's state can never collide with another
-# caller's. A no-argument run of this workflow from within CAST itself
-# manages state under CAST's own namespace, not whatever bare/unnamespaced
-# path an older direct caller (e.g. cvc5-manager.yml) might use.
+# caller's - not whatever bare/unnamespaced path an older direct caller
+# (e.g. cvc5-manager.yml) might use.
 #
 # Calling from a fork is just:
 #
@@ -45,14 +44,12 @@ on:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue/fuzzing schedule state)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to monitor'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
@@ -61,14 +58,12 @@ on:
     inputs:
       solver:
         description: 'Solver name (namespaces the build queue/fuzzing schedule state)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to monitor'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false

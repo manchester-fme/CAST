@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 class SimpleCommitFuzzer:
@@ -58,6 +58,7 @@ class SimpleCommitFuzzer:
         target_path: str = "",
         oracle_path: Optional[str] = None,
         job_id: Optional[str] = None,
+        resource_config: Optional[Dict] = None,
     ):
         self.tests = tests
         self.tests_root = Path(tests_root)
@@ -66,7 +67,17 @@ class SimpleCommitFuzzer:
         self.modulo = modulo
         self.job_id = job_id
         self.start_time = time.time()
-        
+
+        # Manifest-declared overrides (fuzzer.resources) win per key; unknown
+        # keys are ignored rather than raised so a manifest typo degrades
+        # gracefully instead of crashing a scheduled run.
+        self.RESOURCE_CONFIG = dict(self.RESOURCE_CONFIG)
+        for key, value in (resource_config or {}).items():
+            if key in self.RESOURCE_CONFIG:
+                self.RESOURCE_CONFIG[key] = value
+            else:
+                print(f"[WARN] Ignoring unknown resource config key: {key}", file=sys.stderr)
+
         try:
             self.cpu_count = psutil.cpu_count()
         except Exception:
@@ -521,9 +532,12 @@ class SimpleCommitFuzzer:
             return self.resource_state.get('paused', False)
     
     def _get_solver_clis(self) -> str:
-        solvers = [self._invocation_for(self.target_path)]
+        # Oracle first: typefuzz runs solvers in this order, and the oracle
+        # (the trusted reference) should be invoked before the target.
+        solvers = []
         if self.oracle_path:
             solvers.append(self._invocation_for(self.oracle_path))
+        solvers.append(self._invocation_for(self.target_path))
         return ";".join(solvers)
 
     def _compute_time_remaining(self, job_start_time: float, stop_buffer_minutes: int) -> int:
@@ -827,19 +841,6 @@ class SimpleCommitFuzzer:
 
 
 def main():
-    # The actual CLI flag *names* for target/oracle paths are manifest-driven
-    # (fuzzer.target_flag / fuzzer.oracle_flag, e.g. "--cvc5-path") so the
-    # caller can keep passing whichever solver-specific flag name it always
-    # has - register them dynamically before building the rest of the parser.
-    bootstrap = argparse.ArgumentParser(add_help=False)
-    bootstrap.add_argument("--target-flag", required=True,
-                            help='CLI flag name for the target path, e.g. "--cvc5-path" '
-                                 '(from manifest.json fuzzer.target_flag)')
-    bootstrap.add_argument("--oracle-flag", default=None,
-                            help='CLI flag name for the oracle path, e.g. "--z3-path" '
-                                 '(from manifest.json fuzzer.oracle_flag, if declared)')
-    bootstrap_args, remaining_argv = bootstrap.parse_known_args()
-
     parser = argparse.ArgumentParser(
         description="Simple commit fuzzer that runs typefuzz on tests with multiple solvers"
     )
@@ -886,18 +887,23 @@ def main():
         help="Modulo parameter for typefuzz -m flag (default: 2)",
     )
     parser.add_argument(
-        bootstrap_args.target_flag,
+        "--target-path",
         dest="target_path",
         required=True,
         help="Path to the solver binary under test",
     )
-    if bootstrap_args.oracle_flag:
-        parser.add_argument(
-            bootstrap_args.oracle_flag,
-            dest="oracle_path",
-            default=None,
-            help="Path (or bare command name, resolved via PATH) to the differential-testing oracle",
-        )
+    parser.add_argument(
+        "--oracle-path",
+        dest="oracle_path",
+        default=None,
+        help="Path (or bare command name, resolved via PATH) to the differential-testing oracle",
+    )
+    parser.add_argument(
+        "--resource-config-json",
+        default="{}",
+        help="JSON object of RESOURCE_CONFIG overrides (from manifest.json fuzzer.resources), "
+             "e.g. {\"max_process_memory_mb\": 4096}. Unrecognized keys are ignored.",
+    )
     try:
         default_workers = psutil.cpu_count()
     except Exception:
@@ -915,7 +921,7 @@ def main():
         help="Folder to store bugs (default: bugs)",
     )
     
-    args = parser.parse_args(remaining_argv)
+    args = parser.parse_args()
 
     # Parse tests JSON
     try:
@@ -928,7 +934,15 @@ def main():
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
+    try:
+        resource_config = json.loads(args.resource_config_json)
+        if not isinstance(resource_config, dict):
+            raise ValueError("resource-config-json must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Error: Invalid --resource-config-json: {e}", file=sys.stderr)
+        sys.exit(1)
+
     # Create and run fuzzer
     try:
         fuzzer = SimpleCommitFuzzer(
@@ -942,8 +956,9 @@ def main():
             job_start_time=args.job_start_time,
             stop_buffer_minutes=args.stop_buffer_minutes,
             target_path=args.target_path,
-            oracle_path=getattr(args, "oracle_path", None),
+            oracle_path=args.oracle_path,
             job_id=args.job_id,
+            resource_config=resource_config,
         )
         fuzzer.run()
         # Always exit with success

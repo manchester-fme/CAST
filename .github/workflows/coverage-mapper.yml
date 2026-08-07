@@ -28,22 +28,21 @@ name: Coverage Mapper
 # - they always come from the real upstream mechanism declared in the
 # manifest, regardless of who's calling.
 #
-# solver/repo_url default to the cvc5 production values, so a no-argument
-# run maps cvc5 coverage under this workflow's own (forced) namespace.
+# solver/repo_url are required - deliberately no default, so no caller can
+# silently inherit another solver's state under this workflow's own (forced)
+# namespace.
 
 on:
   workflow_call:
     inputs:
       solver:
         description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build coverage for'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
@@ -61,14 +60,12 @@ on:
     inputs:
       solver:
         description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: false
+        required: true
         type: string
-        default: cvc5
       repo_url:
         description: 'Git URL of the upstream solver repository to build coverage for'
-        required: false
+        required: true
         type: string
-        default: https://github.com/cvc5/cvc5.git
       commit_hash:
         description: 'Optional: commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
@@ -123,7 +120,7 @@ jobs:
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
-          PRE_SETUP=$(jq -r '.coverage.pre_discovery_setup // empty' "$MANIFEST")
+          PRE_SETUP=$(jq -r '.coverage.setup_command // empty' "$MANIFEST")
           if [ -n "$PRE_SETUP" ]; then
             (cd "$SOLVER" && eval "$PRE_SETUP")
           fi
