@@ -1008,22 +1008,51 @@ def main():
     parser.add_argument('--clang-args-json', default='[]',
                        help='JSON array of clang args, used as a fallback when a file has '
                             'no compile_commands.json entry - from manifest.json\'s fuzzer.clang_args')
+    parser.add_argument('--tests-file',
+                       help='Path to a file listing every test to fuzz, one per line. When given, '
+                            'skips coverage-based test selection entirely (no coverage mapping or '
+                            'libclang/compile_commands.json needed) and fuzzes every listed test - '
+                            'used for a commit-fuzzer.yml no_coverage run.')
 
     args = parser.parse_args()
 
-    # Check if coverage JSON exists
-    if not os.path.exists(args.coverage_json):
-        print(f"Error: Coverage JSON file not found: {args.coverage_json}")
-        sys.exit(1)
+    if args.tests_file:
+        # No-coverage mode: every test in the file gets fuzzed, no commit-diff/
+        # coverage analysis at all - function_matches stays empty so the
+        # existing "no function matches" branch below does a plain sequential
+        # split across jobs.
+        with open(args.tests_file) as f:
+            all_tests = sorted(set(line.strip() for line in f if line.strip()))
+        print(f"No-coverage mode: fuzzing all {len(all_tests)} tests for commit {args.commit}")
+        result = {
+            'commit': args.commit,
+            'changed_functions': [],
+            'covering_tests': all_tests,
+            'function_matches': {},
+            'match_type_counts': {},
+            'summary': {
+                'total_functions': 0,
+                'functions_with_tests': 0,
+                'functions_without_tests': 0,
+                'total_covering_tests': len(all_tests),
+                'coverage_percentage': 100.0,
+                'fallback_to_all_tests': False,
+            }
+        }
+    else:
+        # Check if coverage JSON exists
+        if not os.path.exists(args.coverage_json):
+            print(f"Error: Coverage JSON file not found: {args.coverage_json}")
+            sys.exit(1)
 
-    # Initialize analyzer
-    analyzer = PrepareCommitAnalyzer(".", compile_commands=args.compile_commands,
-                                      namespace_prefix=args.namespace_prefix,
-                                      clang_args=json.loads(args.clang_args_json))
-    
-    # Analyze commit coverage
-    result = analyzer.analyze_commit_coverage(args.commit, args.coverage_json)
-    
+        # Initialize analyzer
+        analyzer = PrepareCommitAnalyzer(".", compile_commands=args.compile_commands,
+                                          namespace_prefix=args.namespace_prefix,
+                                          clang_args=json.loads(args.clang_args_json))
+
+        # Analyze commit coverage
+        result = analyzer.analyze_commit_coverage(args.commit, args.coverage_json)
+
     # Get unique tests
     unique_tests = sorted(list(set(result['covering_tests'])))
     

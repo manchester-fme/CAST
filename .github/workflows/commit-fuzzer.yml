@@ -87,10 +87,13 @@ on:
         type: string
         default: ''
       max_jobs:
-        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag)'
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to 9, when left empty.'
         required: false
         type: number
-        default: 9
+      no_coverage:
+        description: 'Fuzz every test in fuzzer.list_tests_command instead of the coverage-selected subset for this commit - skips downloading/requiring a coverage mapping and the libclang-based commit-diff analysis entirely. Useful before any coverage mapping exists yet, or for an occasional full-suite sweep.'
+        required: false
+        type: boolean
   workflow_dispatch:
     inputs:
       solver:
@@ -130,10 +133,13 @@ on:
         type: string
         default: ''
       max_jobs:
-        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag)'
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to 9, when left empty.'
         required: false
         type: number
-        default: 9
+      no_coverage:
+        description: 'Fuzz every test in fuzzer.list_tests_command instead of the coverage-selected subset for this commit - skips downloading/requiring a coverage mapping and the libclang-based commit-diff analysis entirely. Useful before any coverage mapping exists yet, or for an occasional full-suite sweep.'
+        required: false
+        type: boolean
 
 jobs:
   check-latest-build:
@@ -271,17 +277,21 @@ jobs:
           repository: manchester-fme/CAST
           ref: feature/parametric-coverage-fuzzer
       - name: Install LLVM/Clang 17
+        if: inputs.no_coverage != true
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: '17'
 
       - name: Add LLVM to PATH
+        if: inputs.no_coverage != true
         run: echo "${{ env.LLVM_PATH }}/bin" >> $GITHUB_PATH
 
       - name: Export LIBCLANG_PATH
+        if: inputs.no_coverage != true
         run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install system development packages
+        if: inputs.no_coverage != true
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -336,6 +346,7 @@ jobs:
           echo "${{ inputs.solver }} commit hash: $COMMIT_HASH"
 
       - name: Configure storage backend
+        if: inputs.no_coverage != true
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
@@ -346,6 +357,7 @@ jobs:
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
+        if: inputs.no_coverage != true
         continue-on-error: true
         run: |
           SOLVER="${{ inputs.solver }}"
@@ -375,7 +387,7 @@ jobs:
 
       - name: Extract headers and compile_commands.json
         id: extract-artifacts
-        if: steps.download-production-binary.outputs.artifacts_available == 'true'
+        if: inputs.no_coverage != true && steps.download-production-binary.outputs.artifacts_available == 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
@@ -395,7 +407,7 @@ jobs:
           fi
 
       - name: Build solver static binary (fallback for headers and compile_commands.json)
-        if: steps.extract-artifacts.outputs.artifacts_available != 'true'
+        if: inputs.no_coverage != true && steps.extract-artifacts.outputs.artifacts_available != 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
@@ -408,6 +420,7 @@ jobs:
           fi
 
       - name: Configure storage backend for coverage download
+        if: inputs.no_coverage != true
         uses: ./.github/actions/configure-storage
         with:
           secrets: ${{ toJSON(secrets) }}
@@ -418,6 +431,7 @@ jobs:
 
       - name: Download coverage map from S3
         id: download-coverage
+        if: inputs.no_coverage != true
         run: |
           SOLVER="${{ inputs.solver }}"
           NAMESPACE="${{ github.repository }}"
@@ -476,14 +490,14 @@ jobs:
           fi
 
       - name: Extract coverage map
-        if: steps.download-coverage.outputs.coverage_found == 'true'
+        if: inputs.no_coverage != true && steps.download-coverage.outputs.coverage_found == 'true'
         run: |
           gunzip coverage_mapping.json.gz
           ls -la coverage_mapping.json
           echo "✅ Coverage mapping extracted successfully"
 
       - name: Coverage mapping not found
-        if: steps.download-coverage.outputs.coverage_found != 'true'
+        if: inputs.no_coverage != true && steps.download-coverage.outputs.coverage_found != 'true'
         run: |
           echo "❌ Coverage mapping not found. Please run the coverage mapper workflow first or specify a valid coverage_commit_hash."
           exit 1
@@ -492,32 +506,55 @@ jobs:
         id: extract-tests
         env:
           SKIP_COVERAGE_ENFORCEMENT: "true"
-          MAX_JOBS: ${{ inputs.max_jobs }}
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="$GITHUB_WORKSPACE/$SOLVER_DIR/manifest.json"
-          NAMESPACE_PREFIX=$(jq -r '.fuzzer.namespace_prefix // empty' "$MANIFEST")
-          CLANG_ARGS_JSON=$(jq -c '.fuzzer.clang_args // []' "$MANIFEST")
 
-          cd "$SOLVER"
-          # Run commit fuzzer with matrix output (1 commit instead of 50).
-          # Jobs capped at max_jobs (default 9 per solver) to leave space for building and management.
+          # Precedence: explicit workflow input > manifest-declared default > 9.
+          MAX_JOBS="${{ inputs.max_jobs }}"
+          if [ -z "$MAX_JOBS" ]; then
+            MAX_JOBS=$(jq -r '.fuzzer.resources.max_jobs // empty' "$MANIFEST")
+          fi
+          if [ -z "$MAX_JOBS" ]; then
+            MAX_JOBS=9
+          fi
+
+          # Jobs capped at MAX_JOBS to leave space for building and management.
           # Tests per job is calculated dynamically to fit within MAX_JOBS.
           # prepare_commit_fuzzer.py/run_prepare_commit_fuzzer.sh are CAST-owned
           # (src/commit_fuzzer/) - solver-specific facts flow in as manifest-read
           # flags below, not as a per-solver copy of these scripts in solver_dir.
-          "$GITHUB_WORKSPACE/src/commit_fuzzer/run_prepare_commit_fuzzer.sh" \
-            --python-script "$GITHUB_WORKSPACE/src/commit_fuzzer/prepare_commit_fuzzer.py" \
-            --coverage-file ../coverage_mapping.json \
-            --compile-commands build \
-            --output-matrix fuzzer_matrix.json \
-            --max-jobs $MAX_JOBS \
-            --commit-hash "${{ steps.get-commit.outputs.commit_hash }}" \
-            --namespace-prefix "$NAMESPACE_PREFIX" \
-            --clang-args-json "$CLANG_ARGS_JSON" \
-            1
+          if [ "${{ inputs.no_coverage }}" = "true" ]; then
+            # Fuzz every test in the solver's seed corpus - no coverage
+            # mapping or libclang-based commit-diff analysis needed at all.
+            LIST_TESTS_COMMAND=$(jq -r '.fuzzer.list_tests_command' "$MANIFEST")
+            (cd "$SOLVER" && eval "$LIST_TESTS_COMMAND") > all_tests.txt
+            echo "📋 No-coverage mode: found $(wc -l < all_tests.txt) tests to fuzz"
+
+            cd "$SOLVER"
+            python3 "$GITHUB_WORKSPACE/src/commit_fuzzer/prepare_commit_fuzzer.py" \
+              "${{ steps.get-commit.outputs.commit_hash }}" \
+              --tests-file ../all_tests.txt \
+              --output-matrix fuzzer_matrix.json \
+              --max-jobs $MAX_JOBS
+          else
+            NAMESPACE_PREFIX=$(jq -r '.fuzzer.namespace_prefix // empty' "$MANIFEST")
+            CLANG_ARGS_JSON=$(jq -c '.fuzzer.clang_args // []' "$MANIFEST")
+
+            cd "$SOLVER"
+            "$GITHUB_WORKSPACE/src/commit_fuzzer/run_prepare_commit_fuzzer.sh" \
+              --python-script "$GITHUB_WORKSPACE/src/commit_fuzzer/prepare_commit_fuzzer.py" \
+              --coverage-file ../coverage_mapping.json \
+              --compile-commands build \
+              --output-matrix fuzzer_matrix.json \
+              --max-jobs $MAX_JOBS \
+              --commit-hash "${{ steps.get-commit.outputs.commit_hash }}" \
+              --namespace-prefix "$NAMESPACE_PREFIX" \
+              --clang-args-json "$CLANG_ARGS_JSON" \
+              1
+          fi
 
           if [ ! -f "fuzzer_matrix.json" ]; then
             echo "No matrix file created (no functions found or no tests), setting empty outputs"
@@ -871,10 +908,12 @@ jobs:
           TARGET_BINARY_PATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST")
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
           MAX_WORKERS=$(jq -r '.fuzzer.resources.max_workers // empty' "$MANIFEST")
-          # max_workers is handled above via --workers, not part of
-          # RESOURCE_CONFIG - drop it so simple_commit_fuzzer.py doesn't warn
-          # about an "unknown" key on every run.
-          RESOURCES_JSON=$(jq -c '(.fuzzer.resources // {}) | del(.max_workers)' "$MANIFEST")
+          # max_workers is handled above via --workers, and max_jobs is a
+          # GitHub Actions matrix fan-out size read by the "Run Commit
+          # Fuzzer and create matrix" step, not a RESOURCE_CONFIG key -
+          # drop both so simple_commit_fuzzer.py doesn't warn about
+          # "unknown" keys on every run.
+          RESOURCES_JSON=$(jq -c '(.fuzzer.resources // {}) | del(.max_workers, .max_jobs)' "$MANIFEST")
 
           ARGS=(
             --tests-json '${{ toJson(matrix.tests) }}'
