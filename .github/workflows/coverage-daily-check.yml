@@ -5,7 +5,7 @@ name: Coverage Daily Check
 # Generalizes cvc5-coverage-daily-check.yml and z3-coverage-daily-check.yml.
 # Same manifest-driven approach as coverage-mapper.yml (see that file's
 # header for the full rationale) - all solver-specific facts (extra repos to
-# clone, pre-discovery setup, test-discovery flag/target) come from
+# clone, pre-discovery setup, how tests are listed) come from
 # src/solvers/<solver>/manifest.json, not from branching in this file.
 # solver_dir defaults to src/solvers/<solver> and, like coverage-mapper.yml,
 # can point inside your own solver checkout instead; it's passed straight
@@ -118,12 +118,9 @@ jobs:
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          MANIFEST="$SOLVER_DIR/manifest.json"
-          DISCOVERY_FLAG=$(jq -r '.coverage.discovery_flag' "$MANIFEST")
-          DISCOVERY_TARGET=$(jq -r '.coverage.discovery_target' "$MANIFEST" | sed "s/{solver}/$SOLVER/")
 
-          python3 src/coverage/count_tests.py "$SOLVER" \
-            "$DISCOVERY_FLAG" "$DISCOVERY_TARGET" \
+          python3 src/coverage/count_tests.py \
+            --solver "$SOLVER" \
             --solver-dir "$SOLVER_DIR" \
             --output test-count.json
 

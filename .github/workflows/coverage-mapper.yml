@@ -3,24 +3,19 @@ name: Coverage Mapper
 # Reusable, solver-agnostic coverage-mapping workflow.
 #
 # Generalizes cvc5-coverage-mapper.yml and z3-coverage-mapper.yml behind a
-# single set of parameters (solver, repo_url, commit_hash). Unlike build.yml
-# (where every solver difference is just a string parameter), cvc5 and z3
-# genuinely diverge in what this pipeline needs to do - z3 needs an extra
-# `z3test` repo cloned and a cvc5 oracle binary installed for its test
-# discovery/analysis, cvc5 needs neither but does need a CMake configure
-# step before test discovery that z3 doesn't. Rather than branching on
-# `inputs.solver` in this file, every solver-specific fact is declared in
-# that solver's src/solvers/<solver>/manifest.json ("coverage" section) and
-# read generically here via `jq`. Adding a third solver means writing that
-# solver's manifest.json plus coverage/{coverage_mapper,generate_matrix}.py
-# at a fixed <solver_dir>/coverage/ naming convention - no edits to this
-# file. solver_dir defaults to src/solvers/<solver>, but can point inside
-# your own solver checkout (e.g. myproject/cast-profile) so none of that
-# needs to live in CAST at all; the manifest's own coverage.oracle_fetch.path
-# can likewise point into your solver_dir, since it's read as manifest
-# content, not a hardcoded workflow path. join_coverage_mappings.py and
-# run_coverage_builder.sh are CAST-owned (src/coverage/) - fully generic,
-# not something a third solver needs to bring its own copy of.
+# single set of parameters (solver, repo_url, commit_hash). The coverage
+# engine itself (src/coverage/{coverage_mapper,generate_matrix,count_tests}.py)
+# is CAST-owned and fully solver-agnostic in code - it never branches on
+# `inputs.solver`. What genuinely differs between cvc5 (ctest introspection)
+# and z3 (SMT2 file walk + cvc5-oracle diff) is pushed entirely into that
+# solver's src/solvers/<solver>/manifest.json ("coverage" section): two
+# opaque shell commands, `list_tests_command` (stdout = one test per line)
+# and `run_test_command` (a `{test}`-templated command; exit 0 = passed).
+# Adding a third solver means writing its manifest.json + build.sh - no
+# Python coverage scripts, and no edits to this file. solver_dir defaults to
+# src/solvers/<solver>, but can point inside your own solver checkout (e.g.
+# myproject/cast-profile) so none of that needs to live in CAST at all -
+# still just manifest.json + build.sh, never a coverage/ subdirectory.
 #
 # Runnable standalone - no other workflow file is required to trigger it:
 #   - From the GitHub UI/API: Actions -> Coverage Mapper -> Run workflow
@@ -58,7 +53,7 @@ on:
         required: false
         type: number
       solver_dir:
-        description: 'Directory containing manifest.json/build.sh/coverage scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
         required: false
         type: string
         default: ''
@@ -79,7 +74,7 @@ on:
         required: false
         type: string
       solver_dir:
-        description: 'Directory containing manifest.json/build.sh/coverage scripts for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
         required: false
         type: string
         default: ''
@@ -148,12 +143,10 @@ jobs:
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
-          MANIFEST="$SOLVER_DIR/manifest.json"
-          DISCOVERY_FLAG=$(jq -r '.coverage.discovery_flag' "$MANIFEST")
-          DISCOVERY_TARGET=$(jq -r '.coverage.discovery_target' "$MANIFEST" | sed "s/{solver}/$SOLVER/")
 
-          python3 "$SOLVER_DIR/coverage/generate_matrix.py" \
-            "$DISCOVERY_FLAG" "$DISCOVERY_TARGET" \
+          python3 "$GITHUB_WORKSPACE/src/coverage/generate_matrix.py" \
+            --solver "$SOLVER" \
+            --solver-dir "$SOLVER_DIR" \
             --max-job-time 360 \
             --buffer 60 \
             --output matrix.json
@@ -218,15 +211,19 @@ jobs:
             exit 0
           fi
           FETCH_TYPE=$(jq -r '.coverage.oracle_fetch.type' "$MANIFEST")
-          if [ "$FETCH_TYPE" != "script" ]; then
+          if [ "$FETCH_TYPE" != "github_release" ]; then
             echo "❌ Unsupported coverage.oracle_fetch.type: $FETCH_TYPE"
             exit 1
           fi
-          SCRIPT=$(jq -r '.coverage.oracle_fetch.path' "$MANIFEST")
+          REPO=$(jq -r '.coverage.oracle_fetch.repo' "$MANIFEST")
+          ASSET_KEYWORDS=$(jq -r '.coverage.oracle_fetch.asset_keywords | join(",")' "$MANIFEST")
+          BINARY_NAME=$(jq -r '.coverage.oracle_fetch.binary_name' "$MANIFEST")
           INSTALL_DIR=$(jq -r '.coverage.oracle_fetch.install_dir' "$MANIFEST")
           INSTALL_DIR=$(eval echo "$INSTALL_DIR")
           pip install requests
-          python3 "$SCRIPT" "$INSTALL_DIR"
+          python3 "$GITHUB_WORKSPACE/src/util/download_github_release_binary.py" \
+            --repo "$REPO" --asset-keywords "$ASSET_KEYWORDS" --binary-name "$BINARY_NAME" \
+            "$INSTALL_DIR"
           echo "$INSTALL_DIR" >> $GITHUB_PATH
           "$ORACLE_SOLVER" --version
         env:

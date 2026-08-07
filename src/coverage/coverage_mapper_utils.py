@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-Shared coverage-mapping utilities, used by every solver's own
-<solver_dir>/coverage/coverage_mapper.py.
-
-Also home to calculate_jobs, generate_matrix.py's job-count/tests-per-job
-math - identical between solvers there too (job *naming* and test
-*discovery* are what genuinely differ, and stay in each solver's own
-generate_matrix.py).
-
-Test discovery and execution (get_ctest_tests/get_smt2_tests,
-process_single_test) stay per-solver - they're genuinely different
-mechanisms (e.g. cvc5's CTest introspection vs z3's SMT2 file walking +
-oracle comparison), not just different constants. Everything here is the
-~half of coverage_mapper.py that was already byte-identical between cvc5's
-and z3's original, independently-written implementations: fastcov output
-parsing, function-name demangling, path simplification, and memory
-bookkeeping. None of it depends on which solver is being mapped.
+Shared coverage-mapping primitives used by CAST's single, solver-agnostic
+coverage_mapper.py/generate_matrix.py (also in src/coverage/). Test
+discovery and single-test execution aren't per-solver code at all anymore -
+they're opaque shell commands declared in each solver's manifest.json
+(coverage.list_tests_command/run_test_command); this module holds the parts
+that are genuinely identical regardless of which command produced a test
+name: fastcov output parsing, function-name demangling, path simplification,
+memory bookkeeping, and calculate_jobs (generate_matrix.py's job-count/
+tests-per-job math).
 """
 
 import gc
