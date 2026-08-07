@@ -16,8 +16,9 @@ Add three files to your solver's repo:
 .github/workflows/cast.yml    # triggers CAST's workflows on a schedule
 ```
 
-Templates for all three are in [`example/`](example/); See `manchester-fme/cvc5`
-for a real, working reference.
+Templates for all three are in [`example/`](example/); See
+[`manchester-fme/cvc5`](https://github.com/manchester-fme/cvc5) for a real,
+working reference.
 
 ## Fuzzing options
 - **Coverage-guided** (default) — only fuzz the tests relevant to what a
