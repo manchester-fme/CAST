@@ -1,5 +1,5 @@
 
-<img height="450" alt="image" src="https://github.com/user-attachments/assets/6d6f248f-5b43-4bd4-9d4f-50a0ea8a5d0e" />
+<img height="350" alt="image" src="https://github.com/user-attachments/assets/6d6f248f-5b43-4bd4-9d4f-50a0ea8a5d0e" />
 
 <p align="center">  
   <a href="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml"><img src="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
