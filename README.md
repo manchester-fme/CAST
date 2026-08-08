@@ -1,4 +1,4 @@
-<img width="1024" height="300" alt="image" src="https://github.com/user-attachments/assets/92947b38-bb83-4525-84fa-0a748d0644e1" />
+<img height="300" alt="image" src="https://github.com/user-attachments/assets/92947b38-bb83-4525-84fa-0a748d0644e1" />
 
 <p align="center">
   <a href="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml"><img src="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
