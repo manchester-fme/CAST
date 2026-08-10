@@ -123,22 +123,27 @@ def parse_fastcov_json(fastcov_file: Path, test_name: str, demangle_cache: Dict[
 def reset_coverage_counters(build_dir: Path) -> None:
     """Reset coverage counters using fastcov --zerocounters"""
     subprocess.run([
-        "fastcov", "--zerocounters", "--search-directory", str(build_dir),
+        "fastcov", "--zerocounters", "--search-directory", str(build_dir.resolve()),
         "--exclude", "/usr/include/*", "--exclude", "*/deps/*"
-    ], cwd=build_dir.parent, capture_output=True, text=True, check=False)
+    ], capture_output=True, text=True, check=False)
 
 
 def extract_coverage_data(build_dir: Path, test_name: str, demangle_cache: Dict[str, str]) -> Optional[Dict]:
     """Run fastcov for the just-executed test and parse its output"""
     # Sanitize test name for filename (handles both / and \ path separators)
     safe_name = test_name.replace('/', '_').replace('\\', '_')
-    fastcov_output = build_dir / f"fastcov_{safe_name}.json"
+    # Absolute - build_dir is always relative (e.g. "cvc5/build") in this
+    # codebase's usage, and fastcov resolves --search-directory/--output
+    # against its own cwd, not the caller's - a relative path here plus the
+    # cwd= below used to silently double the path (e.g. "cvc5/cvc5/build"),
+    # making fastcov report "0 coverage files found" on every single test.
+    fastcov_output = (build_dir / f"fastcov_{safe_name}.json").resolve()
 
     result = subprocess.run([
-        "fastcov", "--gcov", "gcov", "--search-directory", str(build_dir),
+        "fastcov", "--gcov", "gcov", "--search-directory", str(build_dir.resolve()),
         "--output", str(fastcov_output), "--exclude", "/usr/include/*",
         "--exclude", "*/deps/*", "--jobs", "4"
-    ], cwd=build_dir.parent, capture_output=True, text=True, check=False)
+    ], capture_output=True, text=True, check=False)
 
     if result.returncode != 0:
         return None
