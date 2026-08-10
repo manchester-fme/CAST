@@ -1,7 +1,7 @@
 
-<img height="300" alt="image" src="https://github.com/user-attachments/assets/709b78d5-a4da-4158-adc4-0608c6ab8d1d" />
-
-<p align="center">  
+<p align="center">
+  <img height="300" alt="image" src="https://github.com/user-attachments/assets/709b78d5-a4da-4158-adc4-0608c6ab8d1d" />
+  <br/>
   <a href="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml"><img src="https://github.com/manchester-fme/CAST/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
 </p>
