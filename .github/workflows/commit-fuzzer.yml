@@ -462,7 +462,12 @@ jobs:
             echo "🔍 Finding latest coverage mapping in S3..."
             if [ "$BROKER" = "r2-broker" ]; then
               $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh list "$NAMESPACE" "$PREFIX/" listing.xml
+              # Presigned list_objects_v2 URLs always request encoding-type=url,
+              # so R2 percent-encodes <Key> (e.g. "/" -> "%2F") - undo that
+              # before the sed prefix-strip below, or it's a no-op and LATEST
+              # ends up as the whole encoded key instead of just the filename.
               LATEST=$(grep -oP '<Key>\K[^<]+' listing.xml \
+                | python3 -c "import sys, urllib.parse; [print(urllib.parse.unquote(l.strip())) for l in sys.stdin]" \
                 | grep "coverage_mapping-" \
                 | sed 's#.*/##' \
                 | sort -r \

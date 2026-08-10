@@ -28,7 +28,7 @@ import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Dict, Optional
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import boto3
 import requests
@@ -208,7 +208,14 @@ class BrokerS3Client:
         root = ET.fromstring(resp.content)
         contents = []
         for item in root.findall('s3:Contents', _S3_XML_NS):
+            # boto3's presigned URL for list_objects_v2 always requests
+            # encoding-type=url, so R2 percent-encodes Key (e.g. "/" ->
+            # "%2F") in the XML - callers (e.g. s3_state.py's
+            # get_latest_available_build) expect a plain key to prefix-strip,
+            # so undo that encoding here rather than at every call site.
             key = item.findtext('s3:Key', namespaces=_S3_XML_NS)
+            if key is not None:
+                key = unquote(key)
             last_modified_raw = item.findtext('s3:LastModified', namespaces=_S3_XML_NS)
             last_modified = None
             if last_modified_raw:
