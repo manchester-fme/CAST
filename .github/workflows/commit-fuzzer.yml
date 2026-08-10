@@ -786,6 +786,20 @@ jobs:
             mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
             python3 "$SCRIPT" "$GITHUB_WORKSPACE/oracle-bin"
             echo "$GITHUB_WORKSPACE/oracle-bin" >> $GITHUB_PATH
+          elif [ "$FALLBACK_TYPE" = "github_release" ]; then
+            # Same generic downloader coverage-mapper.yml uses for
+            # coverage.oracle_fetch - for a solver with no reliable pip CLI
+            # package (e.g. cvc5, unlike z3-solver), fetch its own latest
+            # GitHub release instead of writing a per-solver script.
+            REPO=$(jq -r '.fuzzer.oracle_fetch_fallback.repo' "$MANIFEST")
+            ASSET_KEYWORDS=$(jq -r '.fuzzer.oracle_fetch_fallback.asset_keywords | join(",")' "$MANIFEST")
+            BINARY_NAME=$(jq -r '.fuzzer.oracle_fetch_fallback.binary_name' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$GITHUB_WORKSPACE/src/util/download_github_release_binary.py" \
+              --repo "$REPO" --asset-keywords "$ASSET_KEYWORDS" --binary-name "$BINARY_NAME" \
+              "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> $GITHUB_PATH
           else
             echo "❌ Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
             exit 1
