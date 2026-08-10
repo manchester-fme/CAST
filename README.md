@@ -26,64 +26,64 @@ working reference.
 
 ### `.cast/manifest.json`
 
-Declares where your tests live, how to build/run them, and which solver to
-diff against when fuzzing. Two independent sections - fill in whichever
-pipeline(s) you want.
+Two independent sections - fill in whichever pipeline(s) you want.
+
+- Write `list_tests_command`/`run_test_command` to run with your solver
+  checked out as a directory literally named `<solver>`, one level above
+  your cwd (e.g. `cd <solver>/build && ctest ...`).
+- Set `target_jobs`/`avg_test_time_seconds` to size the parallel
+  coverage-mapping jobs - a rough time estimate is fine.
 
 ```jsonc
 {
   "coverage": {
-    "repo_url": "https://github.com/<org>/<solver>.git",
+    "repo_url": "<GITHUB-REPO>",
     "list_tests_command": "<prints one test name per line>",
     "run_test_command": "<runs one test; {test} is substituted in; exit 0 = passed>",
     "target_jobs": 4,
-    "avg_test_time_seconds": 10.0,
-    "oracle_solver": null
+    "avg_test_time_seconds": 10.0
   },
   "fuzzer": {
-    "tests_root": "<path to your seed corpus>",
-    "target_binary_path": "./build/bin/<solver>",
-    "oracle_solver": "<reference solver name, e.g. z3>",
-    "oracle_fetch_fallback": { "type": "pip", "package": "z3-solver" }
+    "tests_root": "<PATH_TO_TESTS>",
+    "target_binary_path": "<PATH_TO_SOLVER>",
+    "oracle_solver": "<REFERENCE-SOLVER-NAME, e.g. z3>"
   }
 }
 ```
 
 ### `.cast/build.sh`
 
-Builds your solver. CAST calls it with `--static` (production), `--coverage`
-(instrumented), or both, and expects a runnable binary afterward at the path
-declared by `cast.yml`'s `binary_path` input and the manifest's
-`fuzzer.target_binary_path`.
+Read `"$@"` and branch on these flags:
+
+| Flags | What to build |
+|---|---|
+| _(none)_ | production build |
+| `--static` | statically-linked production build |
+| `--coverage` | debug build instrumented for gcov (compile/link with `--coverage`) + install `fastcov` |
+| `--static --coverage` | both |
+
+End with a runnable binary at the path given by `cast.yml`'s `binary_path`
+input / the manifest's `fuzzer.target_binary_path`.
 
 ```bash
 #!/bin/bash
 set -e
-ENABLE_COVERAGE=false; ENABLE_STATIC=false
+COVERAGE=false; STATIC=false
 for arg in "$@"; do
   case "$arg" in
-    --coverage) ENABLE_COVERAGE=true ;;
-    --static)   ENABLE_STATIC=true ;;
+    --coverage) COVERAGE=true ;;
+    --static)   STATIC=true ;;
   esac
 done
 
-git clone https://github.com/<org>/<solver>.git <solver> 2>/dev/null || true
-cd <solver>
-
-if [ "$ENABLE_COVERAGE" = true ]; then
-  ./configure.sh debug --coverage
-else
-  ./configure.sh production ${ENABLE_STATIC:+--static}
-fi
-cd build && make -j"$(nproc)"
+# ...clone/configure/build here, branching on $COVERAGE/$STATIC as needed
 ```
 
 ### `.github/workflows/cast.yml`
 
-Wires CAST's reusable workflows (hosted in this repo) into your solver's own
-schedule/manual dispatch. Only the `solver`/`repo_url`/`build_script`/
-`binary_path`/`solver_dir` values need to change per job - the schedule and
-job structure can stay as-is.
+Set `repo_url` to your own fork (not upstream). Only change
+`solver`/`repo_url`/`build_script`/`binary_path`/`solver_dir` per job below
+- leave the schedule and job structure as-is.
 
 ```yaml
 on:
