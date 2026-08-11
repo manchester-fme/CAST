@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Dict, Optional
@@ -73,14 +74,26 @@ def fetch_oidc_token(audience: str = 'sts.amazonaws.com') -> str:
             'ACTIONS_ID_TOKEN_REQUEST_URL/_TOKEN not set - the workflow job needs '
             '`permissions: id-token: write` to use the r2-broker storage provider.'
         )
-    resp = requests.get(
-        request_url,
-        params={'audience': audience},
-        headers={'Authorization': f'Bearer {request_token}'},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()['value']
+    # GitHub's OIDC token endpoint is occasionally slow under load (seen
+    # timing out past 10s with no server-side issue on our end) - retry a
+    # couple of times rather than letting one slow request fail the whole
+    # job, since every r2-broker call depends on this token.
+    last_error: Optional[Exception] = None
+    for attempt in range(3):
+        if attempt > 0:
+            time.sleep(2 * attempt)
+        try:
+            resp = requests.get(
+                request_url,
+                params={'audience': audience},
+                headers={'Authorization': f'Bearer {request_token}'},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()['value']
+        except requests.RequestException as e:
+            last_error = e
+    raise last_error
 
 
 def assume_role(oidc_token: str, role_arn: str, session_name: str) -> Dict[str, str]:
