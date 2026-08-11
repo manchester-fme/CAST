@@ -334,9 +334,31 @@ jobs:
       - name: Checkout commit to fuzz
         run: |
           SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
           COMMIT_TO_FUZZ="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"
           echo "🔨 Checking out commit to fuzz: $COMMIT_TO_FUZZ"
+          # solver_dir may point inside the SUT checkout (e.g. "$SOLVER/.cast")
+          # for external solvers bringing their own manifest.json/build.sh.
+          # That profile lives on the default branch, not necessarily at
+          # every historical commit, so back it up and restore it across the
+          # checkout below instead of letting `git checkout` silently wipe it
+          # out whenever COMMIT_TO_FUZZ predates it.
+          CAST_PROFILE_BACKUP=""
+          case "$SOLVER_DIR" in
+            "$SOLVER"/*)
+              if [ -d "$SOLVER_DIR" ]; then
+                CAST_PROFILE_BACKUP=$(mktemp -d)
+                cp -r "$SOLVER_DIR" "$CAST_PROFILE_BACKUP/profile"
+              fi
+              ;;
+          esac
           (cd "$SOLVER" && git fetch origin && git checkout "$COMMIT_TO_FUZZ" && echo "Checked out commit: $(git rev-parse HEAD)")
+          if [ -n "$CAST_PROFILE_BACKUP" ]; then
+            rm -rf "$SOLVER_DIR"
+            mkdir -p "$(dirname "$SOLVER_DIR")"
+            cp -r "$CAST_PROFILE_BACKUP/profile" "$SOLVER_DIR"
+            rm -rf "$CAST_PROFILE_BACKUP"
+          fi
 
       - name: Get solver commit hash
         id: get-commit
@@ -866,7 +888,26 @@ jobs:
             else
               git clone "${{ inputs.repo_url }}" "$SOLVER"
             fi
+            # Mirrors the backup/restore in "Checkout commit to fuzz" above -
+            # SOLVER_DIR may point inside this same checkout (e.g.
+            # "$SOLVER/.cast"), and that profile isn't guaranteed to exist at
+            # every historical commit, so preserve it across the checkout.
+            CAST_PROFILE_BACKUP=""
+            case "$SOLVER_DIR" in
+              "$SOLVER"/*)
+                if [ -d "$SOLVER_DIR" ]; then
+                  CAST_PROFILE_BACKUP=$(mktemp -d)
+                  cp -r "$SOLVER_DIR" "$CAST_PROFILE_BACKUP/profile"
+                fi
+                ;;
+            esac
             (cd "$SOLVER" && git fetch origin && git checkout "${{ needs.commit-fuzzer.outputs.commit_hash }}" && echo "Checked out commit: $(git rev-parse HEAD)")
+            if [ -n "$CAST_PROFILE_BACKUP" ]; then
+              rm -rf "$SOLVER_DIR"
+              mkdir -p "$(dirname "$SOLVER_DIR")"
+              cp -r "$CAST_PROFILE_BACKUP/profile" "$SOLVER_DIR"
+              rm -rf "$CAST_PROFILE_BACKUP"
+            fi
           }
 
           if [ "$SKIP_IF_CACHED" = "true" ] && [ "$BINARY_AVAILABLE" = "true" ]; then
