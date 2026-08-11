@@ -540,11 +540,16 @@ jobs:
           MANIFEST="$GITHUB_WORKSPACE/$SOLVER_DIR/manifest.json"
 
           # Precedence: explicit workflow input > manifest-declared default > 9.
+          # An omitted `number`-typed workflow_call/workflow_dispatch input
+          # resolves to "0", not "" - callers that don't set max_jobs (the
+          # common case) would otherwise pin MAX_JOBS at 0 here and crash
+          # downstream, so treat 0 the same as unset (max_jobs=0 wouldn't be
+          # a meaningful value for a caller to request anyway).
           MAX_JOBS="${{ inputs.max_jobs }}"
-          if [ -z "$MAX_JOBS" ]; then
+          if [ -z "$MAX_JOBS" ] || [ "$MAX_JOBS" = "0" ]; then
             MAX_JOBS=$(jq -r '.fuzzer.resources.max_jobs // empty' "$MANIFEST")
           fi
-          if [ -z "$MAX_JOBS" ]; then
+          if [ -z "$MAX_JOBS" ] || [ "$MAX_JOBS" = "0" ]; then
             MAX_JOBS=9
           fi
 
