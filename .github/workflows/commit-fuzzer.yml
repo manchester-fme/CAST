@@ -484,16 +484,14 @@ jobs:
             echo "🔍 Finding latest coverage mapping in S3..."
             if [ "$BROKER" = "r2-broker" ]; then
               $GITHUB_WORKSPACE/src/util/r2_broker_cli.sh list "$NAMESPACE" "$PREFIX/" listing.xml
-              # Presigned list_objects_v2 URLs always request encoding-type=url,
-              # so R2 percent-encodes <Key> (e.g. "/" -> "%2F") - undo that
-              # before the sed prefix-strip below, or it's a no-op and LATEST
-              # ends up as the whole encoded key instead of just the filename.
-              LATEST=$(grep -oP '<Key>\K[^<]+' listing.xml \
-                | python3 -c "import sys, urllib.parse; [print(urllib.parse.unquote(l.strip())) for l in sys.stdin]" \
-                | grep "coverage_mapping-" \
-                | sed 's#.*/##' \
-                | sort -r \
-                | head -n 1 || echo "")
+              # Filenames are coverage_mapping-<commit-sha>.json.gz - sorting
+              # by filename (as this used to do) sorts by hash, not by time,
+              # and can silently pick an old/unrelated mapping over the
+              # actual latest one. Pick by <LastModified> instead (also
+              # undoing R2's percent-encoding of <Key>, e.g. "/" -> "%2F",
+              # since presigned list_objects_v2 URLs always request
+              # encoding-type=url).
+              LATEST=$(python3 -c $'import re, urllib.parse\nxml = open("listing.xml").read()\nents = [(lm, urllib.parse.unquote(k)) for k, lm in re.findall(r"<Key>([^<]+)</Key>.*?<LastModified>([^<]+)</LastModified>", xml, re.S)]\nents = [e for e in ents if "coverage_mapping-" in e[1]]\nprint(max(ents)[1].rsplit("/", 1)[-1] if ents else "")' || echo "")
             else
               LATEST=$(aws s3 ls s3://$AWS_BUCKET_NAME/$PREFIX/ \
                 | grep "coverage_mapping-" \
