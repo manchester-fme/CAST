@@ -488,6 +488,8 @@ if __name__ == '__main__':
     p.add_argument('data', help='JSON data')
     p = raw_sub.add_parser('exists', help='Check if file exists')
     p.add_argument('filename', help='State file name')
+    p = raw_sub.add_parser('delete', help='Delete state file')
+    p.add_argument('filename', help='State file name')
     
     args = parser.parse_args()
     
@@ -569,6 +571,9 @@ if __name__ == '__main__':
             elif args.action == 'exists':
                 exists = manager.file_exists(args.filename)
                 print(f"File exists: {exists}")
+            elif args.action == 'delete':
+                manager.delete_state(args.filename)
+                print(f"✅ Deleted {args.filename}")
         
     except S3StateError as e:
         print(f"❌ Error: {e}", file=sys.stderr)
