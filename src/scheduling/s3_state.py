@@ -246,7 +246,17 @@ class S3StateManager:
             self.write_state(filename, schedule)
             return True
         return False
-    
+
+    def clear_fuzzing_schedule(self, version: Optional[str] = None) -> None:
+        """Clear fuzzing schedule (versioned) - remove all commits from schedule.
+
+        Args:
+            version: Version string (defaults to DEFAULT_STATE_VERSION, None for v1)
+        """
+        version = version if version is not None else DEFAULT_STATE_VERSION
+        filename = self._get_versioned_filename('fuzzing-schedule.json', version)
+        self.write_state(filename, [])
+
     def select_and_increment_least_fuzzed(self, version: Optional[str] = None) -> Optional[str]:
         """Atomically select the least-fuzzed commit and increment its fuzz_count (versioned).
         Returns the commit hash if found, None if schedule is empty.
@@ -455,6 +465,7 @@ if __name__ == '__main__':
     p.add_argument('commit', help='Commit hash')
     p = fuzzing_sub.add_parser('remove', help='Remove commit from fuzzing schedule')
     p.add_argument('commit', help='Commit hash')
+    p = fuzzing_sub.add_parser('clear', help='Clear fuzzing schedule')
     p = fuzzing_sub.add_parser('increment-fuzz-count', help='Increment fuzz count for commit')
     p.add_argument('commit', help='Commit hash')
     fuzzing_sub.add_parser('get', help='Get fuzzing schedule')
@@ -528,6 +539,9 @@ if __name__ == '__main__':
                     print(f"✅ Removed {args.commit} from fuzzing schedule")
                 else:
                     print(f"⚠️  {args.commit} not found in fuzzing schedule")
+            elif args.action == 'clear':
+                manager.clear_fuzzing_schedule()
+                print(f"✅ Cleared fuzzing schedule")
             elif args.action == 'increment-fuzz-count':
                 if manager.increment_fuzz_count(args.commit):
                     print(f"✅ Incremented fuzz count for {args.commit}")
