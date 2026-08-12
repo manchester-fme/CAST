@@ -4,7 +4,7 @@
 import os
 import sys
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, src_dir)
@@ -23,27 +23,36 @@ except ImportError:
     boto3 = None
 
 
-def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> List[str]:
+def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> Tuple[List[str], bool]:
     """Get commits from GitHub.
-    
+
     Args:
         repo_url: Repository URL
         since_commit: Only fetch commits after this commit (None = start from beginning)
         token: GitHub token
         max_commits: Maximum number of commits to fetch (None = unlimited, used when starting fresh)
+
+    Returns:
+        (commits, found_since_commit) - found_since_commit is True when since_commit was
+        None (not applicable) or was actually encountered in the fetched history; False
+        means since_commit was given but never showed up (e.g. repo_url was repointed at a
+        different repo than the one that hash was recorded against), so commits is a raw
+        page dump, not a reliable "everything new since last check" list - callers should
+        treat that the same as starting fresh rather than trusting it wholesale.
     """
     if requests is None:
         raise RuntimeError("requests library required")
-    
+
     repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
     api_url = f"https://api.github.com/repos/{repo_path}/commits"
     headers = {'Authorization': f'token {token}'} if token else {}
     params = {'per_page': 100}
-    
+
     print(f"📡 Fetching commits from GitHub: {repo_path}")
     print(f"   Parameters: since_commit={since_commit[:8] if since_commit else 'None'}, max_commits={max_commits}, token={'***' if token else 'None'}")
-    
+
     commits = []
+    found_since_commit = since_commit is None
     page = 1
     while True:
         params['page'] = page
@@ -55,25 +64,25 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
             if not data:
                 print(" (no more commits)")
                 break
-            
+
             print(f" (got {len(data)} commits)")
             for commit in data:
                 commit_hash = commit['sha']
-                
+
                 # Stop if we've reached the last checked commit (we've seen all new commits)
                 if since_commit and commit_hash == since_commit:
                     print(f"   ✅ Found last_checked commit {since_commit[:8]} on page {page}, stopping fetch")
-                    return commits
-                
+                    return commits, True
+
                 # Add commit to list (skip the last checked commit itself)
                 if not (since_commit and commit_hash == since_commit):
                     commits.append(commit_hash)
-                    
+
                     # Stop if we've reached max_commits limit
                     if max_commits and len(commits) >= max_commits:
                         print(f"   ⚠️  Reached max_commits limit ({max_commits}), stopping fetch")
-                        return commits
-            
+                        return commits, found_since_commit
+
             if len(data) < 100:
                 print(f"   ✅ Reached end of commits (last page had {len(data)} commits)")
                 break
@@ -84,12 +93,15 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
                 break
             print(f"   ❌ HTTP error: {e}", file=sys.stderr)
             raise RuntimeError(f"GitHub API error: {e}")
-    
+
     print(f"📊 Total commits fetched: {len(commits)}")
     if commits:
         print(f"   First commit (newest): {commits[0][:8]}")
         print(f"   Last commit (oldest): {commits[-1][:8]}")
-    return commits
+    if since_commit and not found_since_commit:
+        print(f"   ⚠️  since_commit {since_commit[:8]} was never found in the fetched history - "
+              f"treating as a stale/mismatched state, not a real backlog", file=sys.stderr)
+    return commits, found_since_commit
 
 
 def verify_commit_is_newer(repo_url: str, newer_commit: str, older_commit: str, token: Optional[str] = None) -> bool:
@@ -248,27 +260,39 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
     
     try:
         print(f"\n📡 Fetching commits from GitHub...")
-        commits = get_commits_from_github(repo_url, last_checked, token, max_commits=max_commits)
+        commits, found_since_commit = get_commits_from_github(repo_url, last_checked, token, max_commits=max_commits)
     except Exception as e:
         print(f"\n❌ FATAL: Error getting commits: {e}", file=sys.stderr)
         import traceback
         print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
         sys.exit(1)
-    
+
+    # last_checked was recorded against a different repo's history (e.g.
+    # repo_url was repointed from a fork to upstream, and the fork's last
+    # merge-commit hash doesn't exist upstream) - `commits` is then just a
+    # raw, un-bounded page dump, not "everything new since last check", so
+    # treat it exactly like a fresh start (capped below) rather than queuing
+    # the whole dump.
+    state_mismatch = bool(last_checked) and not found_since_commit
+    if state_mismatch:
+        print(f"\n⚠️  last_checked commit {last_checked[:8]} was not found via repo_url={repo_url} - "
+              f"state looks stale/mismatched (e.g. repo_url changed). Treating as a fresh start.")
+
     # Track NEW commits added from GitHub
     new_commits_added_to_schedule = []
-    
+
     # Track errors during processing - if too many, fail rather than update state incorrectly
     processing_errors = 0
     max_processing_errors = 10  # Allow some errors (rate limits, etc.) but fail if too many
-    
+
     # Process new commits from GitHub
     if commits:
         print(f"\n📝 Processing {len(commits)} commit(s) to check for C++ changes...")
-        
+
         # CRITICAL VALIDATION: If we had a last_checked commit, verify commits[0] is actually newer
-        # This prevents updating to an old commit if something went wrong
-        if last_checked and commits[0] != last_checked:
+        # This prevents updating to an old commit if something went wrong. Skipped on a state
+        # mismatch, since last_checked isn't a real commit in this repo_url to compare against.
+        if last_checked and commits[0] != last_checked and not state_mismatch:
             print(f"\n🔍 CRITICAL VALIDATION: Verifying commit order...")
             if not verify_commit_is_newer(repo_url, commits[0], last_checked, token):
                 print(f"\n❌ FATAL: Validation failed - newest commit {commits[0][:8]} is not newer than last_checked {last_checked[:8]}", file=sys.stderr)
@@ -303,10 +327,11 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
         
         print(f"\n📊 Summary: Found {len(new_commits_with_cpp)} commit(s) with C++ changes out of {len(commits)} total")
         
-        # When starting fresh (no last_checked), limit to last 4 commits with C++ changes
+        # When starting fresh (no last_checked, or last_checked didn't match this repo_url's
+        # history), limit to last 4 commits with C++ changes.
         # Note: commits come from GitHub API in reverse chronological order (newest first)
         # So [:4] gets the 4 newest commits with C++ changes
-        if not last_checked and new_commits_with_cpp:
+        if (not last_checked or state_mismatch) and new_commits_with_cpp:
             if len(new_commits_with_cpp) > 4:
                 print(f"\n📋 Starting fresh: limiting to last 4 commits with C++ changes (found {len(new_commits_with_cpp)})")
                 print(f"   Keeping: {', '.join([c[:8] for c in new_commits_with_cpp[:4]])}")
