@@ -4,7 +4,8 @@
 Input: a single confirmed bug-triggering .smt2 file (as produced by
 dedup.py / minimized by reduce.py -- named 'incorrect-...smt2' for a
 soundness bug or 'crash-...smt2' for a crash)
-Output: a GitHub issue title + body for this repository's issue tracker
+Output: a GitHub issue title + body for --repo's issue tracker (default:
+the current directory's git remote)
 
 Re-confirms the bug with dedup.py's confirm_crash()/confirm_soundness()
 (the same logic dedup.py and reduce.py use) so a report can't be filed for
@@ -127,12 +128,12 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
     return title, "\n".join(lines) + "\n"
 
 
-def find_existing_issue(title):
-    result = subprocess.run(
-        ["gh", "issue", "list", "--search", f'"{title}" in:title', "--state", "all",
-         "--json", "number,title,url", "--limit", "5"],
-        capture_output=True, text=True,
-    )
+def find_existing_issue(title, repo=None):
+    cmd = ["gh", "issue", "list", "--search", f'"{title}" in:title', "--state", "all",
+           "--json", "number,title,url", "--limit", "5"]
+    if repo:
+        cmd += ["--repo", repo]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         return None
     for item in json.loads(result.stdout or "[]"):
@@ -141,18 +142,18 @@ def find_existing_issue(title):
     return None
 
 
-def post_issue(title, body):
-    result = subprocess.run(
-        ["gh", "issue", "create", "--title", title, "--body", body],
-        capture_output=True, text=True,
-    )
+def post_issue(title, body, repo=None):
+    cmd = ["gh", "issue", "create", "--title", title, "--body", body]
+    if repo:
+        cmd += ["--repo", repo]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print("error: gh issue create failed:\n" + result.stderr, flush=True)
         exit(1)
     print(result.stdout.strip(), flush=True)  # gh prints the created issue's URL
 
 
-def report(path, target_cmd, oracle_cmd, post, out):
+def report(path, target_cmd, oracle_cmd, post, out, repo=None):
     dedup.check_solver_installed(target_cmd)
     if oracle_cmd:
         dedup.check_solver_installed(oracle_cmd)
@@ -175,12 +176,12 @@ def report(path, target_cmd, oracle_cmd, post, out):
     if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode != 0:
         error("gh is not authenticated -- run `gh auth login` first")
 
-    existing = find_existing_issue(title)
+    existing = find_existing_issue(title, repo)
     if existing:
         print(f"an issue with this exact title already exists: {existing['url']} -- not filing a duplicate")
         return
 
-    post_issue(title, body)
+    post_issue(title, body, repo)
 
 
 def parse_args(argv):
@@ -204,9 +205,13 @@ def parse_args(argv):
         help="actually file the issue with `gh issue create` (default: dry run, print only)",
     )
     parser.add_argument("--out", help="also save the drafted title/body to this file")
+    parser.add_argument(
+        "--repo",
+        help="file the issue on this repo (owner/name) instead of the current directory's git remote",
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    report(Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out)
+    report(Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out, args.repo)

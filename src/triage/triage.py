@@ -81,17 +81,17 @@ def stage3_redup(reduced, target_cmd, oracle_cmd):
     return [path for _, path in D]
 
 
-def stage4_report(final_triggers, target_cmd, oracle_cmd, post):
+def stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo):
     for path in final_triggers:
         print(f"[4/4] report: {path.name}", flush=True)
         oracle_for_kind = oracle_cmd if dedup.classify(path) == "soundness" else None
         try:
-            report.report(path, target_cmd, oracle_for_kind, post, out=None)
+            report.report(path, target_cmd, oracle_for_kind, post, out=None, repo=repo)
         except SystemExit as e:
             print(f"  skipped {path.name}: report.py exited with code {e.code}", flush=True)
 
 
-def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, jobs):
+def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, jobs, repo=None):
     dedup.check_solver_installed(target_cmd)
     dedup.check_solver_installed(oracle_cmd)
 
@@ -114,7 +114,7 @@ def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, job
         print("no triggers survived the post-reduction re-check -- nothing to report", flush=True)
         return
 
-    stage4_report(final_triggers, target_cmd, oracle_cmd, post)
+    stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo)
 
 
 def parse_args(argv):
@@ -145,9 +145,16 @@ def parse_args(argv):
     )
     parser.add_argument("--creduce-bin", default="creduce", help="creduce executable (default: %(default)s)")
     parser.add_argument("--jobs", "-j", type=int, default=None, help="parallel creduce jobs (creduce --n)")
+    parser.add_argument(
+        "--repo",
+        help="file issues on this repo (owner/name) instead of the current directory's git remote",
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    triage(args.archive_path, args.target_cmd, args.oracle_cmd, args.out_dir, args.post, args.creduce_bin, args.jobs)
+    triage(
+        args.archive_path, args.target_cmd, args.oracle_cmd, args.out_dir, args.post,
+        args.creduce_bin, args.jobs, args.repo,
+    )

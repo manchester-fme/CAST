@@ -90,6 +90,14 @@ archive/commit (e.g. the two fixture archives in
 fetched as the exact binary `build.yml` built for the resolved commit
 (same S3/R2 key), not some unrelated pinned version.
 
+Issues are filed on `repo` (default: the calling repo, e.g.
+`manchester-fme/z3` when this workflow is called via `workflow_call` from
+z3's own `cast.yml` -- not `manchester-fme/CAST`, even though the job
+checks that out to get `src/triage/`). `report.py`/`triage.py`'s
+`--repo` flag is what makes this possible: without it, `gh issue
+create`/`gh issue list` infer the target from the current directory's
+git remote, which after that checkout would always be CAST itself.
+
 **Untested end-to-end as of writing** -- no local access to the org's
 R2/AWS credentials to verify the broker namespace/key (or the
 auto-discovery listing) against the real backend. Verify on a real run.

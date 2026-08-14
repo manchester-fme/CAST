@@ -45,6 +45,11 @@ on:
         type: boolean
         required: false
         default: false
+      repo:
+        description: "File issues on this repo (owner/name) instead of the caller (e.g. manchester-fme/z3 when called from z3's own cast.yml); empty defaults to the caller"
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
     inputs:
       solver:
@@ -72,6 +77,10 @@ on:
         description: "Actually file GitHub issues (default: dry run, prints drafts only)"
         type: boolean
         default: false
+      repo:
+        description: "File issues on this repo (owner/name) instead of the current repo; empty defaults to manchester-fme/CAST"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -209,6 +218,13 @@ jobs:
 
       # GH_TOKEN authenticates `gh issue create` when --post is set (see
       # report.py); unused, and gh is never invoked, on a dry run.
+      #
+      # --repo defaults to the calling repo (github.repository correctly
+      # resolves to e.g. manchester-fme/z3, not manchester-fme/CAST, when
+      # this workflow is called via workflow_call from z3's own cast.yml)
+      # rather than wherever `gh` would otherwise infer from this job's
+      # checkout of manchester-fme/CAST above -- issues belong on the
+      # fork that actually found the bug, not on CAST itself.
       - name: Run triage pipeline (dedup -> reduce -> dedup -> report)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -217,6 +233,7 @@ jobs:
             --target-cmd "${{ inputs.target_cmd }}" \
             --oracle-cmd "${{ inputs.oracle_cmd }}" \
             --out-dir triage_out \
+            --repo "${{ inputs.repo || github.repository }}" \
             ${{ inputs.post && '--post' || '' }}
 
       - name: Upload dedup_out/reduced_out for inspection
