@@ -2,3 +2,12 @@ temp
 venv
 __pycache__/
 *.pyc
+
+# src/triage/ pipeline output -- see src/triage's dedup.py/reduce.py/
+# triage.py; tests/fixtures/*.tar.gz are the exception, checked in on
+# purpose as CI fixtures
+src/triage/*.tar.gz
+src/triage/dedup_out/
+src/triage/reduced_out/
+src/triage/triage_out/
+src/triage/log

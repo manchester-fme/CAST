@@ -1,0 +1,131 @@
+name: Triage
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive:
+        description: "Repo-relative path to the bug archive to triage"
+        type: choice
+        options:
+          - src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz
+          - src/triage/tests/fixtures/archives/manchester-fme_cvc5_solvers_cvc5_bugs_bugs-be30d27-1786498865.tar.gz
+        default: src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz
+      solver:
+        description: "Target solver under test (must match the archive's origin -- z3 for the first option above, cvc5 for the second)"
+        type: choice
+        options: [z3, cvc5]
+        default: z3
+      commit_hash:
+        description: "Full commit hash of the manchester-fme/<solver> build to fetch as the target (the archive filename's short hash, e.g. 9167020, is a prefix of this -- look up the full hash in that fork's history)"
+        type: string
+        required: true
+      target_cmd:
+        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 model_validate=true')"
+        type: string
+        default: "z3 model_validate=true"
+      oracle_cmd:
+        description: "Oracle solver command"
+        type: string
+        default: "cvc5 --check-models --check-proofs"
+      post:
+        description: "Actually file GitHub issues (default: dry run, prints drafts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  # needed to exchange this job's OIDC token for R2 access via the broker
+  # Lambda when fetching the target solver's real CAST-built binary below
+  id-token: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cvc5/creduce
+        run: sudo apt-get update && sudo apt-get install -y cvc5 creduce
+
+      # Generic fallback/oracle z3: Ubuntu's apt-packaged z3 is a much
+      # older 4.8.12 that doesn't reproduce the bugs confirmed in
+      # src/triage/tests/fixtures/, so pull a working 4.17.0 build from
+      # manchester-fme/CAST_triage's release instead. When solver=z3 below,
+      # the real per-commit build fetched after this overrides it (same
+      # binary name, later PATH entry wins).
+      - name: Install fallback z3 4.17.0
+        run: |
+          curl -sL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/z3-bin"
+          tar -xzf z3.tar.gz -C "$RUNNER_TEMP/z3-bin"
+          chmod +x "$RUNNER_TEMP/z3-bin/z3"
+          echo "$RUNNER_TEMP/z3-bin" >> "$GITHUB_PATH"
+
+      # The actual target under test should be the exact binary CAST built
+      # for this commit (uploaded by .github/workflows/build.yml's
+      # build-static job), not some unrelated pinned/apt version -- fetch it
+      # from the same S3/R2 key build.yml uploaded to.
+      # NOTE: untested end-to-end here (no local access to the org's R2/AWS
+      # credentials) -- verify on a real run and adjust if the broker
+      # rejects the namespace/key.
+      - name: Install python deps for storage access
+        run: pip install boto3 requests
+
+      - name: Configure storage backend
+        uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
+
+      - name: Fetch the ${{ inputs.solver }} build CAST produced for this commit
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          # builds are namespaced by whichever repo's own Actions run
+          # produced them -- the solver's own fork, e.g. manchester-fme/z3
+          # (see .github/workflows/build.yml's "Compute S3 upload key" step)
+          NAMESPACE="manchester-fme/$SOLVER"
+          KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ inputs.commit_hash }}.tar.gz"
+          echo "Fetching $KEY"
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            src/util/r2_broker_cli.sh get "$NAMESPACE" "$KEY" artifacts.tar.gz
+          else
+            aws s3api get-object --bucket "$AWS_BUCKET_NAME" --key "$KEY" artifacts.tar.gz
+          fi
+          # collect_build_artifacts.sh always packs the binary at bin/<solver>
+          # inside the archive, regardless of solver -- see that script.
+          mkdir -p "$RUNNER_TEMP/target-bin"
+          tar -xzf artifacts.tar.gz -C "$RUNNER_TEMP/target-bin" "bin/$SOLVER"
+          mv "$RUNNER_TEMP/target-bin/bin/$SOLVER" "$RUNNER_TEMP/target-bin/$SOLVER"
+          chmod +x "$RUNNER_TEMP/target-bin/$SOLVER"
+          echo "$RUNNER_TEMP/target-bin" >> "$GITHUB_PATH"
+
+      - name: Print solver versions
+        run: z3 --version && cvc5 --version
+
+      # GH_TOKEN authenticates `gh issue create` when --post is set (see
+      # report.py); unused, and gh is never invoked, on a dry run.
+      - name: Run triage pipeline (dedup -> reduce -> dedup -> report)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 src/triage/triage.py "${{ inputs.archive }}" \
+            --target-cmd "${{ inputs.target_cmd }}" \
+            --oracle-cmd "${{ inputs.oracle_cmd }}" \
+            --out-dir triage_out \
+            ${{ inputs.post && '--post' || '' }}
+
+      - name: Upload dedup_out/reduced_out for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-out
+          path: triage_out/
+          if-no-files-found: ignore
