@@ -1,9 +1,10 @@
 name: CI
 
-# Basic sanity checks for CAST's own code - no test suite exists yet, so
-# this catches the class of mistakes that would otherwise only surface at
-# actual workflow-run time: invalid workflow/JSON syntax, Python that
-# doesn't even parse, shell scripts with a syntax error.
+# Basic sanity checks for CAST's own code - no test suite exists yet
+# outside of src/triage (see the test-triage job below), so this catches
+# the class of mistakes that would otherwise only surface at actual
+# workflow-run time: invalid workflow/JSON syntax, Python that doesn't
+# even parse, shell scripts with a syntax error.
 
 on:
   push:
@@ -63,3 +64,35 @@ jobs:
               || { echo "❌ $f"; fail=1; }
           done < <(find . -name "*.sh" -not -path "./.git/*" -print0)
           exit $fail
+
+  test-triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # best-effort: src/triage's real-solver tests skip themselves if
+      # these aren't on PATH, so a failed/unavailable install doesn't fail
+      # the job -- it just narrows what the suite covers.
+      - name: Install cvc5 (best effort)
+        run: sudo apt-get update && sudo apt-get install -y cvc5 || true
+
+      # Ubuntu's apt-packaged z3 is a much older 4.8.12 that doesn't
+      # reproduce the bugs in src/triage/tests/fixtures/, so pull a working
+      # 4.17.0 build from manchester-fme/CAST_triage's release instead.
+      - name: Install z3 4.17.0 (best effort)
+        run: |
+          curl -sL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz" || true
+          if [ -s z3.tar.gz ]; then
+            mkdir -p "$RUNNER_TEMP/z3-bin"
+            tar -xzf z3.tar.gz -C "$RUNNER_TEMP/z3-bin"
+            chmod +x "$RUNNER_TEMP/z3-bin/z3"
+            echo "$RUNNER_TEMP/z3-bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Run src/triage's test suite
+        run: python3 -m unittest discover -s src/triage/tests -v
