@@ -1,26 +1,67 @@
 name: Triage
 
+# Reusable: dedup/reduce/report the bug archives commit-fuzzer.yml uploads.
+#
+# Runnable standalone (workflow_dispatch, Actions -> Triage -> Run workflow)
+# or as a step in a solver's cast.yml cycle (workflow_call, after build+fuzz
+# -- see example/.github/workflows/cast.yml). archive/commit_hash are
+# optional in both cases: leave empty to auto-discover the most recently
+# uploaded bug archive and production build for `solver` from S3/R2 (the
+# same state build.yml/commit-fuzzer.yml write to), or supply them
+# explicitly to triage one specific archive/commit (e.g. the two fixture
+# archives in src/triage/tests/fixtures/archives/).
+#
+# The target solver is always fetched as the actual binary build.yml built
+# for the resolved commit (same S3/R2 key), not some unrelated pinned
+# version -- see the "Fetch the target build" step.
+
 on:
+  workflow_call:
+    inputs:
+      solver:
+        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3')"
+        type: string
+        required: true
+      archive:
+        description: "Repo-relative path to a specific bug archive, or empty to auto-discover the latest uploaded one"
+        type: string
+        required: false
+        default: ""
+      commit_hash:
+        description: "Full commit hash to fetch as the target build, or empty to auto-discover the latest production build"
+        type: string
+        required: false
+        default: ""
+      target_cmd:
+        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 model_validate=true')"
+        type: string
+        required: true
+      oracle_cmd:
+        description: "Oracle solver command"
+        type: string
+        required: true
+      post:
+        description: "Actually file GitHub issues (default: dry run, prints drafts only)"
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
-      archive:
-        description: "Repo-relative path to the bug archive to triage"
-        type: choice
-        options:
-          - src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz
-          - src/triage/tests/fixtures/archives/manchester-fme_cvc5_solvers_cvc5_bugs_bugs-be30d27-1786498865.tar.gz
-        default: src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz
       solver:
-        description: "Target solver under test (must match the archive's origin -- z3 for the first option above, cvc5 for the second)"
+        description: "Solver name (namespaces the S3/R2 lookups)"
         type: choice
         options: [z3, cvc5]
         default: z3
-      commit_hash:
-        description: "Full commit hash of the manchester-fme/<solver> build to fetch as the target (the archive filename's short hash, e.g. 9167020, is a prefix of this -- look up the full hash in that fork's history)"
+      archive:
+        description: "Repo-relative path to a specific bug archive (e.g. src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz), or empty to auto-discover the latest uploaded one"
         type: string
-        required: true
+        default: ""
+      commit_hash:
+        description: "Full commit hash to fetch as the target build, or empty to auto-discover the latest production build"
+        type: string
+        default: ""
       target_cmd:
-        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 model_validate=true')"
+        description: "Target solver command"
         type: string
         default: "z3 model_validate=true"
       oracle_cmd:
@@ -36,14 +77,18 @@ permissions:
   contents: read
   issues: write
   # needed to exchange this job's OIDC token for R2 access via the broker
-  # Lambda when fetching the target solver's real CAST-built binary below
+  # Lambda, both for auto-discovery and for fetching the target build
   id-token: write
 
 jobs:
   triage:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: manchester-fme/CAST
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -55,9 +100,9 @@ jobs:
       # Generic fallback/oracle z3: Ubuntu's apt-packaged z3 is a much
       # older 4.8.12 that doesn't reproduce the bugs confirmed in
       # src/triage/tests/fixtures/, so pull a working 4.17.0 build from
-      # manchester-fme/CAST_triage's release instead. When solver=z3 below,
-      # the real per-commit build fetched after this overrides it (same
-      # binary name, later PATH entry wins).
+      # manchester-fme/CAST_triage's release instead. When solver=z3, the
+      # real per-commit build fetched below overrides it (same binary
+      # name, later PATH entry wins).
       - name: Install fallback z3 4.17.0
         run: |
           curl -sL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz"
@@ -66,13 +111,6 @@ jobs:
           chmod +x "$RUNNER_TEMP/z3-bin/z3"
           echo "$RUNNER_TEMP/z3-bin" >> "$GITHUB_PATH"
 
-      # The actual target under test should be the exact binary CAST built
-      # for this commit (uploaded by .github/workflows/build.yml's
-      # build-static job), not some unrelated pinned/apt version -- fetch it
-      # from the same S3/R2 key build.yml uploaded to.
-      # NOTE: untested end-to-end here (no local access to the org's R2/AWS
-      # credentials) -- verify on a real run and adjust if the broker
-      # rejects the namespace/key.
       - name: Install python deps for storage access
         run: pip install boto3 requests
 
@@ -85,14 +123,73 @@ jobs:
           r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
           r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
+      # Builds are namespaced by whichever repo's own Actions run produced
+      # them -- the solver's own fork, e.g. manchester-fme/z3 (see
+      # build.yml's "Compute S3 upload key" / commit-fuzzer.yml's "Upload
+      # bugs to S3" steps). manchester-fme/<solver> is that fork by
+      # convention for every solver CAST currently tracks.
+      #
+      # NOTE: untested end-to-end here (no local access to the org's R2/AWS
+      # credentials) -- verify on a real run and adjust if the broker
+      # rejects the namespace/key.
+      - name: Resolve archive/commit_hash (auto-discover if not given)
+        id: resolve
+        env:
+          SOLVER: ${{ inputs.solver }}
+          NAMESPACE: manchester-fme/${{ inputs.solver }}
+          GIVEN_ARCHIVE: ${{ inputs.archive }}
+          GIVEN_COMMIT: ${{ inputs.commit_hash }}
+        run: |
+          python3 <<'PYEOF'
+          import os, sys
+          sys.path.insert(0, "src")
+          from scheduling.s3_state import get_state_manager
+
+          solver = os.environ["SOLVER"]
+          namespace = os.environ["NAMESPACE"]
+          given_archive = os.environ.get("GIVEN_ARCHIVE", "")
+          given_commit = os.environ.get("GIVEN_COMMIT", "")
+
+          manager = get_state_manager(solver, namespace=namespace)
+
+          if given_commit:
+              commit_hash = given_commit
+          else:
+              commit_hash = manager.get_latest_available_build()
+              if not commit_hash:
+                  print(f"::error::no production build found for {solver} under {namespace}")
+                  sys.exit(1)
+              print(f"auto-discovered commit: {commit_hash}")
+
+          if given_archive:
+              archive_path = given_archive
+          else:
+              prefix = f"{namespace}/solvers/{solver}/bugs/"
+              paginator = manager.s3_client.get_paginator("list_objects_v2")
+              latest_key, latest_time = None, None
+              for page in paginator.paginate(Bucket=manager.bucket, Prefix=prefix):
+                  for obj in page.get("Contents", []):
+                      if latest_time is None or obj["LastModified"] > latest_time:
+                          latest_time, latest_key = obj["LastModified"], obj["Key"]
+              if not latest_key:
+                  print(f"::error::no bug archive found for {solver} under {prefix}")
+                  sys.exit(1)
+              print(f"auto-discovered archive: {latest_key}")
+              resp = manager.s3_client.get_object(Bucket=manager.bucket, Key=latest_key)
+              with open("bugs.tar.gz", "wb") as f:
+                  f.write(resp["Body"].read())
+              archive_path = "bugs.tar.gz"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"archive={archive_path}\n")
+              f.write(f"commit_hash={commit_hash}\n")
+          PYEOF
+
       - name: Fetch the ${{ inputs.solver }} build CAST produced for this commit
         run: |
           SOLVER="${{ inputs.solver }}"
-          # builds are namespaced by whichever repo's own Actions run
-          # produced them -- the solver's own fork, e.g. manchester-fme/z3
-          # (see .github/workflows/build.yml's "Compute S3 upload key" step)
           NAMESPACE="manchester-fme/$SOLVER"
-          KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ inputs.commit_hash }}.tar.gz"
+          KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ steps.resolve.outputs.commit_hash }}.tar.gz"
           echo "Fetching $KEY"
           if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
             src/util/r2_broker_cli.sh get "$NAMESPACE" "$KEY" artifacts.tar.gz
@@ -116,7 +213,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 src/triage/triage.py "${{ inputs.archive }}" \
+          python3 src/triage/triage.py "${{ steps.resolve.outputs.archive }}" \
             --target-cmd "${{ inputs.target_cmd }}" \
             --oracle-cmd "${{ inputs.oracle_cmd }}" \
             --out-dir triage_out \
