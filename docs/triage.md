@@ -75,12 +75,24 @@ python3 src/triage/triage.py bugs.tar.gz \
   --oracle-cmd "cvc5 --check-models --check-proofs"
 # add --post to actually file issues instead of a dry run
 ```
-Or `.github/workflows/triage.yml` (`workflow_dispatch`-only, since `--post`
-files real issues -- see that file). It fetches the target solver as the
-exact binary `build.yml` built for the given commit (same S3/R2 key), not
-some unrelated pinned version -- **untested end-to-end as of writing**, no
-local access to the org's R2/AWS credentials to verify the broker
-namespace/key against the real backend. Verify on a real run.
+Or `.github/workflows/triage.yml`, both `workflow_dispatch` (manual) and
+`workflow_call` (from a solver's `cast.yml` cycle -- see
+`example/.github/workflows/cast.yml`). `--post` files real issues, so
+`workflow_dispatch` defaults to a dry run.
+
+`solver`/`target_cmd`/`oracle_cmd` are always required; `archive` and
+`commit_hash` are optional -- leave them empty to auto-discover the most
+recently uploaded bug archive and production build for `solver` from
+S3/R2 (the same state `build.yml`/`commit-fuzzer.yml` write to, via
+`get_state_manager()`), or supply them explicitly to triage one specific
+archive/commit (e.g. the two fixture archives in
+`src/triage/tests/fixtures/archives/`). Either way, the target solver is
+fetched as the exact binary `build.yml` built for the resolved commit
+(same S3/R2 key), not some unrelated pinned version.
+
+**Untested end-to-end as of writing** -- no local access to the org's
+R2/AWS credentials to verify the broker namespace/key (or the
+auto-discovery listing) against the real backend. Verify on a real run.
 
 ### Tests
 `src/triage/tests/` is a hermetic suite of fake-solver-driven unit tests
@@ -89,6 +101,5 @@ checks against committed fixtures (`src/triage/tests/fixtures/`). Run with
 `python3 -m unittest discover -s src/triage/tests -v`.
 
 ### Not yet wired up
-- `triage.yml` takes an archive path as input; it isn't hooked into the
-  `fuzz` action's actual bug-archive output yet, and `commit_hash` has to
-  be supplied by hand (no automatic short-hash -> full-hash resolution).
+- No automatic short-hash -> full-hash resolution: `commit_hash` (when
+  supplied explicitly rather than auto-discovered) must be the full hash.
