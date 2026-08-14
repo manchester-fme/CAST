@@ -58,6 +58,10 @@ on:
         description: 'Git URL of the upstream solver repository to fuzz'
         required: true
         type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never fuzzed from, only the real upstream repo_url is'
+        required: true
+        type: string
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -102,6 +106,10 @@ on:
         type: string
       repo_url:
         description: 'Git URL of the upstream solver repository to fuzz'
+        required: true
+        type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never fuzzed from, only the real upstream repo_url is'
         required: true
         type: string
       commit_hash:
@@ -310,17 +318,18 @@ jobs:
         run: |
           pip install gitpython unidiff "libclang==17.0.6"
 
-      - name: Clone solver repository and manifest-declared extra repos
+      - uses: ./.github/actions/clone-solver-source
+        with:
+          solver: ${{ inputs.solver }}
+          repo_url: ${{ inputs.repo_url }}
+          profile_repo_url: ${{ inputs.profile_repo_url }}
+
+      - name: Clone manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
-          if [ -d "$SOLVER" ]; then
-            echo "$SOLVER directory already exists, skipping clone"
-          else
-            git clone "${{ inputs.repo_url }}" "$SOLVER"
-          fi
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
             dir=$(basename "$repo" .git)
@@ -630,18 +639,17 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: Clone solver repo early if solver_dir needs it
-        run: |
-          SOLVER="${{ inputs.solver }}"
-          SOLVER_DIR="${{ inputs.solver_dir }}"
-          # This job normally skips cloning the full solver repo when a cached
-          # binary is available (see "Clone/build SUT if needed" below) - fine
-          # when manifest/scripts live in CAST's own src/solvers/, but a
-          # solver_dir pointing inside the solver's own checkout needs that
-          # checkout to exist before any of the manifest reads further down.
-          if [ -n "$SOLVER_DIR" ] && [ ! -d "$SOLVER" ]; then
-            git clone "${{ inputs.repo_url }}" "$SOLVER"
-          fi
+      # This job normally skips cloning the full solver repo when a cached
+      # binary is available (see "Clone/build SUT if needed" below) - fine
+      # when manifest/scripts live in CAST's own src/solvers/, but a
+      # solver_dir pointing inside the solver's own checkout needs that
+      # checkout to exist before any of the manifest reads further down.
+      - uses: ./.github/actions/clone-solver-source
+        if: inputs.solver_dir != ''
+        with:
+          solver: ${{ inputs.solver }}
+          repo_url: ${{ inputs.repo_url }}
+          profile_repo_url: ${{ inputs.profile_repo_url }}
 
       - name: Install fuzzing dependencies
         run: |
@@ -891,6 +899,15 @@ jobs:
             else
               git clone "${{ inputs.repo_url }}" "$SOLVER"
             fi
+            # .cast/ only ever lives on the fork, never in upstream's tree
+            # (see .github/actions/clone-solver-source) - layer it in now so
+            # the backup/restore below has it to preserve across the
+            # checkout, since checking out an upstream commit_hash always
+            # wipes it otherwise.
+            rm -rf "$SOLVER/.cast" "$SOLVER-profile"
+            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
+            rm -rf "$SOLVER-profile"
             # Mirrors the backup/restore in "Checkout commit to fuzz" above -
             # SOLVER_DIR may point inside this same checkout (e.g.
             # "$SOLVER/.cast"), and that profile isn't guaranteed to exist at

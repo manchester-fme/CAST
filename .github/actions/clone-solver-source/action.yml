@@ -1,0 +1,44 @@
+name: Clone solver source + profile
+description: >
+  Clones the solver's real upstream source into <solver>/, then layers the
+  fork-hosted .cast/ profile (manifest.json, build.sh) on top. The fork
+  exists purely to host .cast/ (and .github/workflows/) -- real source
+  always comes straight from upstream, never the fork, so a fork that never
+  merges upstream (no sync-upstream job any more) never goes stale for
+  building/fuzzing/coverage. A plain `git clone repo_url` alone can't do
+  this: .cast/ only ever exists on the fork, never in upstream's tree, so
+  cloning upstream alone leaves manifest.json/build.sh missing, and cloning
+  the fork alone means never seeing new upstream commits.
+
+inputs:
+  solver:
+    description: 'Solver name (destination directory, relative to the workspace)'
+    required: true
+  repo_url:
+    description: 'Git URL of the real upstream solver repository (source)'
+    required: true
+  profile_repo_url:
+    description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json)'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Clone upstream source
+      shell: bash
+      run: |
+        SOLVER="${{ inputs.solver }}"
+        if [ -d "$SOLVER" ]; then
+          echo "$SOLVER directory already exists, skipping clone"
+        else
+          git clone "${{ inputs.repo_url }}" "$SOLVER"
+        fi
+
+    - name: Layer .cast/ profile from the fork
+      shell: bash
+      run: |
+        SOLVER="${{ inputs.solver }}"
+        rm -rf "$SOLVER/.cast" "$SOLVER-profile"
+        git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+        cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
+        rm -rf "$SOLVER-profile"

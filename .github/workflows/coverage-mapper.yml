@@ -43,6 +43,10 @@ on:
         description: 'Git URL of the upstream solver repository to build coverage for'
         required: true
         type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
+        required: true
+        type: string
       commit_hash:
         description: 'Optional: commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
@@ -64,6 +68,10 @@ on:
         type: string
       repo_url:
         description: 'Git URL of the upstream solver repository to build coverage for'
+        required: true
+        type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
         required: true
         type: string
       commit_hash:
@@ -101,8 +109,20 @@ jobs:
           else
             git clone "${{ inputs.repo_url }}" "$SOLVER"
           fi
+          # .cast/ only ever lives on the fork, never in upstream's tree
+          # (see .github/actions/clone-solver-source) - layer it in, and
+          # re-layer after checking out a specific commit below, since
+          # checking out an upstream commit always wipes it otherwise.
+          layer_profile() {
+            rm -rf "$SOLVER/.cast" "$SOLVER-profile"
+            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
+            rm -rf "$SOLVER-profile"
+          }
+          layer_profile
           if [ -n "${{ inputs.commit_hash }}" ]; then
             (cd "$SOLVER" && git checkout "${{ inputs.commit_hash }}" && echo "Checked out commit: $(git rev-parse HEAD)")
+            layer_profile
           fi
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
@@ -183,8 +203,20 @@ jobs:
           else
             git clone "${{ inputs.repo_url }}" "$SOLVER"
           fi
+          # .cast/ only ever lives on the fork, never in upstream's tree
+          # (see .github/actions/clone-solver-source) - layer it in, and
+          # re-layer after checking out a specific commit below, since
+          # checking out an upstream commit always wipes it otherwise.
+          layer_profile() {
+            rm -rf "$SOLVER/.cast" "$SOLVER-profile"
+            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
+            rm -rf "$SOLVER-profile"
+          }
+          layer_profile
           if [ -n "${{ inputs.commit_hash }}" ]; then
             (cd "$SOLVER" && git checkout "${{ inputs.commit_hash }}" && echo "Checked out commit: $(git rev-parse HEAD)")
+            layer_profile
           fi
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
@@ -278,17 +310,17 @@ jobs:
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "$SOLVER commit hash: $COMMIT_HASH"
 
-      - name: Clone solver repo early if solver_dir needs it
-        run: |
-          SOLVER="${{ inputs.solver }}"
-          SOLVER_DIR="${{ inputs.solver_dir }}"
-          # "Get solver commit hash" above only clones when commit_hash isn't
-          # already provided - fine when manifest/scripts live in CAST's own
-          # src/solvers/, but a solver_dir pointing inside the solver's own
-          # checkout needs that checkout to exist before it's read below.
-          if [ -n "$SOLVER_DIR" ] && [ ! -d "$SOLVER" ]; then
-            git clone "${{ inputs.repo_url }}" "$SOLVER"
-          fi
+      # "Get solver commit hash" above only clones when commit_hash isn't
+      # already provided - fine when manifest/scripts live in CAST's own
+      # src/solvers/, but a solver_dir pointing inside the solver's own
+      # checkout needs that checkout (with .cast/ layered in) to exist
+      # before it's read below.
+      - uses: ./.github/actions/clone-solver-source
+        if: inputs.solver_dir != ''
+        with:
+          solver: ${{ inputs.solver }}
+          repo_url: ${{ inputs.repo_url }}
+          profile_repo_url: ${{ inputs.profile_repo_url }}
 
       - name: Download all coverage mappings
         uses: actions/download-artifact@v4

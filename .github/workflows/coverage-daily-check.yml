@@ -30,6 +30,10 @@ on:
         description: 'Git URL of the upstream solver repository to check'
         required: true
         type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
+        required: true
+        type: string
       solver_dir:
         description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
         required: false
@@ -43,6 +47,10 @@ on:
         type: string
       repo_url:
         description: 'Git URL of the upstream solver repository to check'
+        required: true
+        type: string
+      profile_repo_url:
+        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
         required: true
         type: string
       solver_dir:
@@ -68,17 +76,19 @@ jobs:
         with:
           repository: manchester-fme/CAST
           ref: main
-      - name: Checkout solver repository and manifest-declared extra repos
+      - uses: ./.github/actions/clone-solver-source
+        with:
+          solver: ${{ inputs.solver }}
+          repo_url: ${{ inputs.repo_url }}
+          profile_repo_url: ${{ inputs.profile_repo_url }}
+
+      - name: Fetch latest and clone manifest-declared extra repos
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
-          if [ -d "$SOLVER" ]; then
-            (cd "$SOLVER" && git fetch origin)
-          else
-            git clone "${{ inputs.repo_url }}" "$SOLVER"
-          fi
+          (cd "$SOLVER" && git fetch origin)
           while IFS= read -r repo; do
             [ -z "$repo" ] && continue
             dir=$(basename "$repo" .git)
@@ -164,6 +174,7 @@ jobs:
     with:
       solver: ${{ inputs.solver }}
       repo_url: ${{ inputs.repo_url }}
+      profile_repo_url: ${{ inputs.profile_repo_url }}
       commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
       test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}
       solver_dir: ${{ inputs.solver_dir }}
