@@ -13,7 +13,13 @@ name: Triage
 #
 # The target solver is always fetched as the actual binary build.yml built
 # for the resolved commit (same S3/R2 key), not some unrelated pinned
-# version -- see the "Fetch the target build" step.
+# version -- see the "Fetch the target build" step. The oracle solver is
+# installed the exact same way commit-fuzzer.yml's "Install oracle fallback"
+# step does it during real fuzzing runs: read fuzzer.oracle_solver /
+# oracle_fetch_fallback from the target solver's own manifest.json (pip /
+# script / github_release) -- see "Install oracle solver" below -- so
+# triage always reproduces against the same oracle build/version fuzzing
+# actually used, never an unrelated pinned or apt-packaged one.
 
 on:
   workflow_call:
@@ -22,6 +28,15 @@ on:
         description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3')"
         type: string
         required: true
+      repo_url:
+        description: "Git URL to clone the target solver from, to read its manifest.json (fuzzer.oracle_solver / oracle_fetch_fallback) -- the same manifest build.yml/commit-fuzzer.yml read, so the oracle installed here matches what fuzzing used"
+        type: string
+        required: true
+      solver_dir:
+        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); e.g. '<solver>/.cast' for solvers whose own fork carries the manifest (see example/.github/workflows/cast.yml)"
+        type: string
+        required: false
+        default: ""
       archive:
         description: "Repo-relative path to a specific bug archive, or empty to auto-discover the latest uploaded one"
         type: string
@@ -57,6 +72,14 @@ on:
         type: choice
         options: [z3, cvc5]
         default: z3
+      repo_url:
+        description: "Git URL to clone the target solver from, to read its manifest.json (fuzzer.oracle_solver / oracle_fetch_fallback)"
+        type: string
+        default: ""
+      solver_dir:
+        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver>; e.g. '<solver>/.cast' for solvers whose own fork carries the manifest"
+        type: string
+        default: ""
       archive:
         description: "Repo-relative path to a specific bug archive (e.g. src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz), or empty to auto-discover the latest uploaded one"
         type: string
@@ -103,22 +126,63 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install cvc5/creduce
-        run: sudo apt-get update && sudo apt-get install -y cvc5 creduce
+      - name: Install creduce
+        run: sudo apt-get update && sudo apt-get install -y creduce
 
-      # Generic fallback/oracle z3: Ubuntu's apt-packaged z3 is a much
-      # older 4.8.12 that doesn't reproduce the bugs confirmed in
-      # src/triage/tests/fixtures/, so pull a working 4.17.0 build from
-      # manchester-fme/CAST_triage's release instead. When solver=z3, the
-      # real per-commit build fetched below overrides it (same binary
-      # name, later PATH entry wins).
-      - name: Install fallback z3 4.17.0
+      # Shallow clone -- only needs to reach manifest.json, not a buildable
+      # source tree (mirrors commit-fuzzer.yml's "Clone oracle solver repo
+      # early if oracle_solver_dir needs it" step).
+      - name: Clone target solver repo for its manifest.json
         run: |
-          curl -sL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz"
-          mkdir -p "$RUNNER_TEMP/z3-bin"
-          tar -xzf z3.tar.gz -C "$RUNNER_TEMP/z3-bin"
-          chmod +x "$RUNNER_TEMP/z3-bin/z3"
-          echo "$RUNNER_TEMP/z3-bin" >> "$GITHUB_PATH"
+          SOLVER="${{ inputs.solver }}"
+          if [ ! -d "$SOLVER" ]; then
+            git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+
+      # Verbatim copy of commit-fuzzer.yml's "Install oracle fallback if
+      # unavailable" body -- this is the exact install path real fuzzing
+      # runs take for the oracle (oracle_solver_dir is never set in
+      # example/.github/workflows/cast.yml, so the manifest-declared
+      # fallback below, not a CAST-tracked commit build, is always what
+      # fuzzing actually ran against). Keep these two in sync.
+      - name: Install oracle solver (same manifest-declared fallback commit-fuzzer.yml uses)
+        id: install-oracle
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
+          ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
+          if [ -z "$ORACLE_SOLVER" ]; then
+            echo "::error::no fuzzer.oracle_solver declared in $MANIFEST"
+            exit 1
+          fi
+          echo "oracle_solver=$ORACLE_SOLVER" >> "$GITHUB_OUTPUT"
+          FALLBACK_TYPE=$(jq -r '.fuzzer.oracle_fetch_fallback.type' "$MANIFEST")
+          echo "Installing oracle $ORACLE_SOLVER via manifest-declared fallback ($FALLBACK_TYPE)"
+          if [ "$FALLBACK_TYPE" = "pip" ]; then
+            PACKAGE=$(jq -r '.fuzzer.oracle_fetch_fallback.package' "$MANIFEST")
+            pip install "$PACKAGE"
+          elif [ "$FALLBACK_TYPE" = "script" ]; then
+            SCRIPT=$(jq -r '.fuzzer.oracle_fetch_fallback.path' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$SCRIPT" "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> "$GITHUB_PATH"
+          elif [ "$FALLBACK_TYPE" = "github_release" ]; then
+            REPO=$(jq -r '.fuzzer.oracle_fetch_fallback.repo' "$MANIFEST")
+            ASSET_KEYWORDS=$(jq -r '.fuzzer.oracle_fetch_fallback.asset_keywords | join(",")' "$MANIFEST")
+            BINARY_NAME=$(jq -r '.fuzzer.oracle_fetch_fallback.binary_name' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$GITHUB_WORKSPACE/src/util/download_github_release_binary.py" \
+              --repo "$REPO" --asset-keywords "$ASSET_KEYWORDS" --binary-name "$BINARY_NAME" \
+              "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> "$GITHUB_PATH"
+          else
+            echo "::error::Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
+            exit 1
+          fi
 
       - name: Install python deps for storage access
         run: pip install boto3 requests
@@ -214,7 +278,9 @@ jobs:
           echo "$RUNNER_TEMP/target-bin" >> "$GITHUB_PATH"
 
       - name: Print solver versions
-        run: z3 --version && cvc5 --version
+        run: |
+          "${{ inputs.solver }}" --version
+          "${{ steps.install-oracle.outputs.oracle_solver }}" --version
 
       # GH_TOKEN authenticates `gh issue create` when --post is set (see
       # report.py); unused, and gh is never invoked, on a dry run.

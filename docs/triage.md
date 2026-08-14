@@ -80,15 +80,27 @@ Or `.github/workflows/triage.yml`, both `workflow_dispatch` (manual) and
 `example/.github/workflows/cast.yml`). `--post` files real issues, so
 `workflow_dispatch` defaults to a dry run.
 
-`solver`/`target_cmd`/`oracle_cmd` are always required; `archive` and
-`commit_hash` are optional -- leave them empty to auto-discover the most
-recently uploaded bug archive and production build for `solver` from
-S3/R2 (the same state `build.yml`/`commit-fuzzer.yml` write to, via
-`get_state_manager()`), or supply them explicitly to triage one specific
-archive/commit (e.g. the two fixture archives in
-`src/triage/tests/fixtures/archives/`). Either way, the target solver is
-fetched as the exact binary `build.yml` built for the resolved commit
-(same S3/R2 key), not some unrelated pinned version.
+`solver`/`repo_url`/`target_cmd`/`oracle_cmd` are always required;
+`solver_dir`, `archive`, and `commit_hash` are optional. `solver_dir`
+defaults to `src/solvers/<solver>`; set it the same way you would for
+`build.yml`/`commit-fuzzer.yml` (e.g. `<solver>/.cast`) -- it's where
+`manifest.json` is read from. `archive`/`commit_hash` left empty
+auto-discover the most recently uploaded bug archive and production build
+for `solver` from S3/R2 (the same state `build.yml`/`commit-fuzzer.yml`
+write to, via `get_state_manager()`), or supply them explicitly to triage
+one specific archive/commit (e.g. the two fixture archives in
+`src/triage/tests/fixtures/archives/`).
+
+Both solvers involved are always the exact ones fuzzing used, never an
+installed-fresh substitute:
+- Target: fetched as the exact binary `build.yml` built for the resolved
+  commit (same S3/R2 key).
+- Oracle: `repo_url` is shallow-cloned to read the target's
+  `manifest.json` (`fuzzer.oracle_solver` / `oracle_fetch_fallback`), then
+  installed via the exact same pip/script/github_release fallback
+  `commit-fuzzer.yml`'s "Install oracle fallback" step uses -- the same
+  install path real fuzzing runs take, since `oracle_solver_dir` is never
+  set in `example/.github/workflows/cast.yml`.
 
 Issues are filed on `repo` (default: the calling repo, e.g.
 `manchester-fme/z3` when this workflow is called via `workflow_call` from
