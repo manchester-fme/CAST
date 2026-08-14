@@ -48,6 +48,7 @@ concurrency:
 
 jobs:
   build:
+    name: CAST Build
     if: inputs.action == 'cycle' || inputs.action == 'build' || github.event_name == 'schedule'
     uses: manchester-fme/CAST/.github/workflows/build.yml@main
     with:
@@ -60,6 +61,7 @@ jobs:
     secrets: inherit
 
   fuzz:
+    name: CAST Fuzz
     needs: build
     if: inputs.action == 'cycle' || inputs.action == 'fuzz' || github.event_name == 'schedule'
     uses: manchester-fme/CAST/.github/workflows/commit-fuzzer.yml@main
@@ -72,6 +74,7 @@ jobs:
     secrets: inherit
 
   triage:
+    name: CAST Triage
     needs: fuzz
     if: inputs.action == 'cycle' || inputs.action == 'triage' || github.event_name == 'schedule'
     uses: manchester-fme/CAST/.github/workflows/triage.yml@main
