@@ -88,13 +88,25 @@ def solve(cil, file, timeout=5, debug=False):
     return stdout, stderr, returncode
 
 
+def strip_own_filename(output, smt2_file):
+    """Solvers commonly echo the input file's path back into their own
+    error messages (e.g. a parse-error location). Strip it out before
+    crash-signature matching, so a creduce-mangled or upstream-derived
+    filename that happens to contain a signature substring (e.g.
+    "...resetAssertions..." matching "Assertion") can't produce a false
+    match on input that's merely malformed, not actually crashing. See #64."""
+    smt2_path = Path(smt2_file)
+    return output.replace(str(smt2_path), "").replace(smt2_path.name, "")
+
+
 def run_solver(cil, smt2_file):
     """Wraps solve() with a verdict; verdict is 'sat', 'unsat', 'crash' or 'unknown'."""
     stdout, stderr, _ = solve(cil, smt2_file)
     output = stdout + stderr
+    scan_text = strip_own_filename(output, smt2_file)
 
     for sig in CRASH_SIGNATURES:
-        if sig in output:
+        if sig in scan_text:
             return "crash", output
     if "unsat" in output:
         return "unsat", output
@@ -306,7 +318,7 @@ def confirm_crash(path, target_cmd):
     if verdict != "crash":
         _dbg(path, f"crash not reconfirmed -- target verdict was '{verdict}', output: {output[:300]!r}")
         return None
-    return crash_msg(output)
+    return crash_msg(strip_own_filename(output, path))
 
 
 def confirm_soundness(path, text, target_cmd, oracle_cmd):

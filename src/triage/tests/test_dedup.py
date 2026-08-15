@@ -35,6 +35,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 FAKE_TARGET_SOLVER = TESTS_DIR / "fake_target_solver.py"
 FAKE_ORACLE_SOLVER = TESTS_DIR / "fake_oracle_solver.py"
 FAKE_BROKEN_SOLVER = TESTS_DIR / "fake_broken_solver.py"
+FAKE_PATH_ECHOING_SOLVER = TESTS_DIR / "fake_path_echoing_solver.py"
 
 # each fake solver is directly executable (chmod +x + shebang) and named
 # for its role, so target_cmd/oracle_cmd have distinct first tokens --
@@ -70,6 +71,22 @@ class PureFunctionTests(unittest.TestCase):
 
     def test_crash_msg_unknown(self):
         self.assertEqual(dedup.crash_msg("nothing interesting here"), "unknown_crash")
+
+    def test_strip_own_filename_removes_full_path(self):
+        output = 'error: /tmp/reduced_out/crash-cvc5-issue5144-resetAssertions-abc.smt2:1.1: bad'
+        path = Path("/tmp/reduced_out/crash-cvc5-issue5144-resetAssertions-abc.smt2")
+        self.assertNotIn("resetAssertions", dedup.strip_own_filename(output, path))
+
+    def test_strip_own_filename_removes_bare_basename(self):
+        # solver ran with a relative/bare filename, not the full path we hold
+        output = 'error: crash-cvc5-issue5144-resetAssertions-abc.smt2:1.1: bad'
+        path = Path("/tmp/reduced_out/crash-cvc5-issue5144-resetAssertions-abc.smt2")
+        self.assertNotIn("resetAssertions", dedup.strip_own_filename(output, path))
+
+    def test_strip_own_filename_leaves_real_signature_text_intact(self):
+        output = 'ASSERTION failed at solver.cpp:42'
+        path = Path("/tmp/reduced_out/crash-cvc5-abc.smt2")
+        self.assertIn("ASSERTION", dedup.strip_own_filename(output, path))
 
     def test_datatype_bitstring(self):
         text = "(declare-const x Int)\n(declare-const b (_ BitVec 32))\n"
@@ -283,6 +300,36 @@ class DedupCrashTests(unittest.TestCase):
         self.assertEqual(len(IN), 2)
         self.assertEqual(len(D), 1)
         self.assertEqual(D[0][1], small)
+
+
+class FilenameSignatureFalsePositiveTests(unittest.TestCase):
+    """Regression test for #64: a real solver's parse-error output often
+    echoes the input file's own path back verbatim, and a creduce-mangled
+    or upstream-derived filename can coincidentally contain a crash
+    signature substring (e.g. "...resetAssertions..." matching
+    "Assertion"). That must not be misread as a real crash -- otherwise
+    creduce's interestingness test never rejects an over-reduced,
+    syntactically-invalid trigger, and reduction wipes out the actual bug
+    (see the real #64 report: reduced to a bare "0")."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+        # filename alone contains "Assertion" (a CRASH_SIGNATURES entry),
+        # same as the real issue5144-resetAssertions-derived trigger name
+        self.path = self.dir / "crash-cvc5--check-models-issue5144-resetAssertions-abc.smt2"
+        self.path.write_text("0\n")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_run_solver_verdict_is_not_crash(self):
+        verdict, output = dedup.run_solver(str(FAKE_PATH_ECHOING_SOLVER), self.path)
+        self.assertIn("resetAssertions", output)  # sanity: filename really is echoed back
+        self.assertNotEqual(verdict, "crash")
+
+    def test_confirm_crash_returns_none(self):
+        self.assertIsNone(dedup.confirm_crash(self.path, str(FAKE_PATH_ECHOING_SOLVER)))
 
 
 class MainEndToEndTest(unittest.TestCase):
