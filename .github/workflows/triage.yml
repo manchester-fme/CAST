@@ -310,6 +310,7 @@ jobs:
             --oracle-cmd "${{ inputs.oracle_cmd }}" \
             --out-dir triage_out \
             --repo "${{ inputs.repo || github.repository }}" \
+            --commit-hash "${{ steps.resolve.outputs.commit_hash }}" \
             ${{ inputs.post && '--post' || '' }}
 
       - name: Upload dedup_out/reduced_out for inspection

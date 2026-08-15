@@ -81,17 +81,17 @@ def stage3_redup(reduced, target_cmd, oracle_cmd):
     return [path for _, path in D]
 
 
-def stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo):
+def stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo, commit_hash=None):
     for path in final_triggers:
         print(f"[4/4] report: {path.name}", flush=True)
         oracle_for_kind = oracle_cmd if dedup.classify(path) == "soundness" else None
         try:
-            report.report(path, target_cmd, oracle_for_kind, post, out=None, repo=repo)
+            report.report(path, target_cmd, oracle_for_kind, post, out=None, repo=repo, commit_hash=commit_hash)
         except SystemExit as e:
             print(f"  skipped {path.name}: report.py exited with code {e.code}", flush=True)
 
 
-def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, jobs, repo=None):
+def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, jobs, repo=None, commit_hash=None):
     dedup.check_solver_installed(target_cmd)
     dedup.check_solver_installed(oracle_cmd)
 
@@ -114,7 +114,7 @@ def triage(archive_path, target_cmd, oracle_cmd, out_dir, post, creduce_bin, job
         print("no triggers survived the post-reduction re-check -- nothing to report", flush=True)
         return
 
-    stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo)
+    stage4_report(final_triggers, target_cmd, oracle_cmd, post, repo, commit_hash)
 
 
 def parse_args(argv):
@@ -149,6 +149,10 @@ def parse_args(argv):
         "--repo",
         help="file issues on this repo (owner/name) instead of the current directory's git remote",
     )
+    parser.add_argument(
+        "--commit-hash",
+        help="commit hash the target binary was built from, included in each filed report if given",
+    )
     return parser.parse_args(argv)
 
 
@@ -156,5 +160,5 @@ if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
     triage(
         args.archive_path, args.target_cmd, args.oracle_cmd, args.out_dir, args.post,
-        args.creduce_bin, args.jobs, args.repo,
+        args.creduce_bin, args.jobs, args.repo, args.commit_hash,
     )

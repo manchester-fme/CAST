@@ -102,7 +102,7 @@ def solver_version(target_cmd):
 DISPLAY_NAME = "bug.smt2"
 
 
-def build_report(path, target_cmd, oracle_cmd, kind, msg):
+def build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash=None):
     text = path.read_text(errors="ignore")
     datatypes = datatypes_from_bitstring(dedup.datatype_bitstring(text))
 
@@ -121,7 +121,15 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
         transcript += [f"$ {oracle_cmd} {DISPLAY_NAME}", oracle_out.strip(), ""]
     transcript += [f"$ cat {DISPLAY_NAME}", pretty_print_smt2(text)]
 
-    lines = [f"solver version: {solver_version(target_cmd)}", "", "```bash"]
+    # solver_version() is best-effort (whatever the binary's own --version
+    # prints, or a local git hash as a fallback) - commit_hash, when the
+    # caller has it (e.g. triage.yml already resolved it to fetch this exact
+    # build from S3), is the authoritative one, so show both rather than
+    # relying on --version's format alone.
+    lines = [f"solver version: {solver_version(target_cmd)}"]
+    if commit_hash:
+        lines.append(f"commit: {commit_hash}")
+    lines += ["", "```bash"]
     lines += transcript
     lines += ["```", "", "---", "Found with [CAST](https://github.com/manchester-fme/CAST)"]
 
@@ -153,13 +161,13 @@ def post_issue(title, body, repo=None):
     print(result.stdout.strip(), flush=True)  # gh prints the created issue's URL
 
 
-def report(path, target_cmd, oracle_cmd, post, out, repo=None):
+def report(path, target_cmd, oracle_cmd, post, out, repo=None, commit_hash=None):
     dedup.check_solver_installed(target_cmd)
     if oracle_cmd:
         dedup.check_solver_installed(oracle_cmd)
 
     kind, msg = confirm(path, target_cmd, oracle_cmd)
-    title, body = build_report(path, target_cmd, oracle_cmd, kind, msg)
+    title, body = build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash)
 
     print(f"--- title ---\n{title}\n--- body ---\n{body}")
 
@@ -209,9 +217,16 @@ def parse_args(argv):
         "--repo",
         help="file the issue on this repo (owner/name) instead of the current directory's git remote",
     )
+    parser.add_argument(
+        "--commit-hash",
+        help="commit hash the target binary was built from, included in the report body if given",
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    report(Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out, args.repo)
+    report(
+        Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out, args.repo,
+        args.commit_hash,
+    )
