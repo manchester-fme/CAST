@@ -245,8 +245,14 @@ jobs:
                       if latest_time is None or obj["LastModified"] > latest_time:
                           latest_time, latest_key = obj["LastModified"], obj["Key"]
               if not latest_key:
-                  print(f"::error::no bug archive found for {solver} under {prefix}")
-                  sys.exit(1)
+                  # Not an error: fuzzing finding zero bugs this cycle is the
+                  # normal, common outcome, not a failure - nothing to triage,
+                  # so skip the rest of the pipeline (see the archive_found
+                  # guards below) rather than failing the whole cast.yml run.
+                  print(f"ℹ️  no bug archive found for {solver} under {prefix} - nothing to triage this run")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write("archive_found=false\n")
+                  sys.exit(0)
               print(f"auto-discovered archive: {latest_key}")
               resp = manager.s3_client.get_object(Bucket=manager.bucket, Key=latest_key)
               with open("bugs.tar.gz", "wb") as f:
@@ -254,11 +260,13 @@ jobs:
               archive_path = "bugs.tar.gz"
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("archive_found=true\n")
               f.write(f"archive={archive_path}\n")
               f.write(f"commit_hash={commit_hash}\n")
           PYEOF
 
       - name: Fetch the ${{ inputs.solver }} build CAST produced for this commit
+        if: steps.resolve.outputs.archive_found == 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
           NAMESPACE="manchester-fme/$SOLVER"
@@ -278,6 +286,7 @@ jobs:
           echo "$RUNNER_TEMP/target-bin" >> "$GITHUB_PATH"
 
       - name: Print solver versions
+        if: steps.resolve.outputs.archive_found == 'true'
         run: |
           "${{ inputs.solver }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version
@@ -292,6 +301,7 @@ jobs:
       # checkout of manchester-fme/CAST above -- issues belong on the
       # fork that actually found the bug, not on CAST itself.
       - name: Run triage pipeline (dedup -> reduce -> dedup -> report)
+        if: steps.resolve.outputs.archive_found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -303,9 +313,13 @@ jobs:
             ${{ inputs.post && '--post' || '' }}
 
       - name: Upload dedup_out/reduced_out for inspection
-        if: always()
+        if: always() && steps.resolve.outputs.archive_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: triage-out
           path: triage_out/
           if-no-files-found: ignore
+
+      - name: Nothing to triage
+        if: steps.resolve.outputs.archive_found == 'false'
+        run: echo "No bug archive found this run - fuzzing found nothing to triage."
