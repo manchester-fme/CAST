@@ -38,7 +38,7 @@ on:
         required: false
         default: ""
       archive:
-        description: "Repo-relative path to a specific bug archive, or empty to auto-discover the latest uploaded one"
+        description: "S3/R2 key of a specific historical bug archive (e.g. manchester-fme/z3/solvers/z3/bugs/bugs-<short-hash>-<timestamp>.tar.gz - see the 'Resolve archive/commit_hash' step's log for all available keys), a repo-relative local fixture path, or empty to auto-discover the latest uploaded one"
         type: string
         required: false
         default: ""
@@ -81,7 +81,7 @@ on:
         type: string
         default: ""
       archive:
-        description: "Repo-relative path to a specific bug archive (e.g. src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz), or empty to auto-discover the latest uploaded one"
+        description: "S3/R2 key of a specific historical bug archive (e.g. manchester-fme/z3/solvers/z3/bugs/bugs-<short-hash>-<timestamp>.tar.gz - see the 'Resolve archive/commit_hash' step's log for all available keys), a repo-relative local fixture path (e.g. src/triage/tests/fixtures/archives/manchester-fme_z3_solvers_z3_bugs_bugs-9167020-1786525852.tar.gz), or empty to auto-discover the latest uploaded one"
         type: string
         default: ""
       commit_hash:
@@ -234,16 +234,40 @@ jobs:
                   sys.exit(1)
               print(f"auto-discovered commit: {commit_hash}")
 
-          if given_archive:
-              archive_path = given_archive
+          prefix = f"{namespace}/solvers/{solver}/bugs/"
+          paginator = manager.s3_client.get_paginator("list_objects_v2")
+          all_entries = []
+          latest_key, latest_time = None, None
+          for page in paginator.paginate(Bucket=manager.bucket, Prefix=prefix):
+              for obj in page.get("Contents", []):
+                  all_entries.append((obj["LastModified"], obj["Key"]))
+                  if latest_time is None or obj["LastModified"] > latest_time:
+                      latest_time, latest_key = obj["LastModified"], obj["Key"]
+          if all_entries:
+              print(f"all {len(all_entries)} bug archive(s) available for {solver} under {prefix} (newest last):")
+              for t, k in sorted(all_entries):
+                  print(f"  {t}  {k}")
           else:
-              prefix = f"{namespace}/solvers/{solver}/bugs/"
-              paginator = manager.s3_client.get_paginator("list_objects_v2")
-              latest_key, latest_time = None, None
-              for page in paginator.paginate(Bucket=manager.bucket, Prefix=prefix):
-                  for obj in page.get("Contents", []):
-                      if latest_time is None or obj["LastModified"] > latest_time:
-                          latest_time, latest_key = obj["LastModified"], obj["Key"]
+              print(f"no bug archives at all found for {solver} under {prefix}")
+
+          if given_archive:
+              # given_archive may be either a full S3/R2 key under this
+              # namespace's bugs/ prefix (to target a specific historical
+              # archive, not just "latest") or a repo-relative local path
+              # (e.g. a committed fixture under src/triage/tests/fixtures/
+              # archives/) - try the S3 key first since a local path can
+              # never collide with a real key (namespace/... always contains
+              # "/"), falling back to treating it as a local path otherwise.
+              try:
+                  resp = manager.s3_client.get_object(Bucket=manager.bucket, Key=given_archive)
+                  with open("bugs.tar.gz", "wb") as f:
+                      f.write(resp["Body"].read())
+                  archive_path = "bugs.tar.gz"
+                  print(f"fetched given archive from S3/R2: {given_archive}")
+              except Exception as e:
+                  print(f"given_archive not found as an S3/R2 key ({e}); treating as a local path")
+                  archive_path = given_archive
+          else:
               if not latest_key:
                   # Not an error: fuzzing finding zero bugs this cycle is the
                   # normal, common outcome, not a failure - nothing to triage,
