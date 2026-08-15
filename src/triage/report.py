@@ -70,25 +70,34 @@ def confirm(path, target_cmd, oracle_cmd):
     return kind, msg
 
 
-def solver_version(target_cmd):
-    """Best-effort solver identifier for the report body: try `<bin>
-    --version` first, falling back to a git commit hash if the binary
-    resolves into a git checkout (e.g. a local solver build)."""
+def solver_commit_hash(target_cmd):
+    """Short commit hash of the target solver's build, for the report body
+    -- the binary is always built from a git checkout in CAST's pipeline,
+    so this is more useful than a solver's verbose --version banner."""
     solver_bin = target_cmd.split(" ")[0]
     resolved = shutil.which(solver_bin) or solver_bin
-
-    try:
-        out = subprocess.run([resolved, "--version"], capture_output=True, text=True, timeout=5)
-        first_line = (out.stdout or out.stderr).strip().splitlines()
-        if first_line:
-            return first_line[0]
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
     try:
         commit_dir = str(Path(resolved).resolve().parent)
         out = subprocess.run(
             ["git", "-C", commit_dir, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    return "unknown"
+
+
+def cast_version():
+    """CAST's own version, from the nearest tag reachable in this checkout
+    (e.g. 'v0.1.0', or 'v0.1.0-3-gabc1234' if HEAD is past the tag)."""
+    try:
+        script_dir = str(Path(__file__).resolve().parent)
+        out = subprocess.run(
+            ["git", "-C", script_dir, "describe", "--tags", "--always"],
             capture_output=True, text=True, timeout=5,
         )
         if out.returncode == 0 and out.stdout.strip():
@@ -121,9 +130,9 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
         transcript += [f"$ {oracle_cmd} {DISPLAY_NAME}", oracle_out.strip(), ""]
     transcript += [f"$ cat {DISPLAY_NAME}", pretty_print_smt2(text)]
 
-    lines = [f"solver version: {solver_version(target_cmd)}", "", "```bash"]
+    lines = [f"commit: {solver_commit_hash(target_cmd)}", "", "```bash"]
     lines += transcript
-    lines += ["```", "", "---", "Found with [CAST](https://github.com/manchester-fme/CAST)"]
+    lines += ["```", "", "---", f"Found with [CAST {cast_version()}](https://github.com/manchester-fme/CAST)"]
 
     return title, "\n".join(lines) + "\n"
 
