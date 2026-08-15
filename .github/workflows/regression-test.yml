@@ -1,0 +1,210 @@
+name: Regression Test
+
+# Reusable, workflow_call-only: proves triage's *detection* logic (fetch the
+# pinned build, fetch the pinned bug archive, run dedup.dedup() with the
+# given target_cmd/oracle_cmd) still confirms a specific, already-known
+# real bug - fails the job if it doesn't. Deliberately narrower than
+# triage.yml's full dedup -> reduce -> dedup -> report pipeline: a
+# regression test only needs to prove detection still works, not
+# re-minimize or re-file anything (report.py already dedupes against an
+# existing issue title, so re-running the full pipeline against a
+# known-filed bug is safe but wasteful for this purpose).
+#
+# Intentionally workflow_call only - no workflow_dispatch/schedule trigger
+# here. Callers (see e.g. a fork's own .github/workflows/regression-test.yml)
+# are expected to be workflow_dispatch-only and never referenced by any
+# schedule, so this only ever runs when a human explicitly triggers it -
+# never automatically.
+#
+# commit_hash/archive are both required (unlike triage.yml, which
+# auto-discovers "latest" when they're omitted): a regression test's whole
+# point is pinning to one specific, known-good commit+archive pair, not
+# whatever happens to be newest.
+
+on:
+  workflow_call:
+    inputs:
+      solver:
+        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3')"
+        type: string
+        required: true
+      repo_url:
+        description: "Git URL to clone the target solver from, to read its manifest.json (fuzzer.oracle_solver / oracle_fetch_fallback)"
+        type: string
+        required: true
+      solver_dir:
+        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver>; e.g. '<solver>/.cast' for solvers whose own fork carries the manifest"
+        type: string
+        required: false
+        default: ""
+      archive:
+        description: "S3/R2 key of the pinned known-bug archive"
+        type: string
+        required: true
+      commit_hash:
+        description: "Full commit hash of the pinned known-good production build"
+        type: string
+        required: true
+      target_cmd:
+        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 smt.threads=1 memory_max_size=2048 model_validate=true')"
+        type: string
+        required: true
+      oracle_cmd:
+        description: "Oracle solver command"
+        type: string
+        required: true
+      expected_kind:
+        description: "Expected confirmed-bug kind: 'crash' or 'soundness'"
+        type: string
+        required: true
+      expected_msg:
+        description: "Expected confirmed-bug message/signature (e.g. 'an invalid model was generated', 'ASSERTION', 'solution', 'refutational')"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  regression-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: manchester-fme/CAST
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install python deps
+        run: pip install boto3 requests
+
+      # Shallow clone - only needs to reach manifest.json, not a buildable
+      # source tree (mirrors triage.yml's identically-named step).
+      - name: Clone target solver repo for its manifest.json
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          if [ ! -d "$SOLVER" ]; then
+            git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
+          fi
+
+      # Verbatim copy of commit-fuzzer.yml's / triage.yml's "Install oracle
+      # fallback" body - the exact install path real fuzzing/triage take.
+      - name: Install oracle solver (same manifest-declared fallback fuzzing/triage use)
+        id: install-oracle
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
+          ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
+          if [ -z "$ORACLE_SOLVER" ]; then
+            echo "::error::no fuzzer.oracle_solver declared in $MANIFEST"
+            exit 1
+          fi
+          FALLBACK_TYPE=$(jq -r '.fuzzer.oracle_fetch_fallback.type' "$MANIFEST")
+          echo "Installing oracle $ORACLE_SOLVER via manifest-declared fallback ($FALLBACK_TYPE)"
+          if [ "$FALLBACK_TYPE" = "pip" ]; then
+            PACKAGE=$(jq -r '.fuzzer.oracle_fetch_fallback.package' "$MANIFEST")
+            pip install "$PACKAGE"
+          elif [ "$FALLBACK_TYPE" = "script" ]; then
+            SCRIPT=$(jq -r '.fuzzer.oracle_fetch_fallback.path' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$SCRIPT" "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> "$GITHUB_PATH"
+          elif [ "$FALLBACK_TYPE" = "github_release" ]; then
+            REPO=$(jq -r '.fuzzer.oracle_fetch_fallback.repo' "$MANIFEST")
+            ASSET_KEYWORDS=$(jq -r '.fuzzer.oracle_fetch_fallback.asset_keywords | join(",")' "$MANIFEST")
+            BINARY_NAME=$(jq -r '.fuzzer.oracle_fetch_fallback.binary_name' "$MANIFEST")
+            pip install requests
+            mkdir -p "$GITHUB_WORKSPACE/oracle-bin"
+            python3 "$GITHUB_WORKSPACE/src/util/download_github_release_binary.py" \
+              --repo "$REPO" --asset-keywords "$ASSET_KEYWORDS" --binary-name "$BINARY_NAME" \
+              "$GITHUB_WORKSPACE/oracle-bin"
+            echo "$GITHUB_WORKSPACE/oracle-bin" >> "$GITHUB_PATH"
+          else
+            echo "::error::Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
+            exit 1
+          fi
+
+      - uses: ./.github/actions/configure-storage
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
+          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
+          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
+          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
+
+      - name: Fetch the pinned bug archive
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="manchester-fme/$SOLVER"
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            src/util/r2_broker_cli.sh get "$NAMESPACE" "${{ inputs.archive }}" bugs.tar.gz
+          else
+            aws s3api get-object --bucket "$AWS_BUCKET_NAME" --key "${{ inputs.archive }}" bugs.tar.gz
+          fi
+          mkdir -p bugs_extracted
+          tar -xzf bugs.tar.gz -C bugs_extracted
+
+      - name: Fetch the pinned ${{ inputs.solver }} build
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          NAMESPACE="manchester-fme/$SOLVER"
+          KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ inputs.commit_hash }}.tar.gz"
+          echo "Fetching $KEY"
+          if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
+            src/util/r2_broker_cli.sh get "$NAMESPACE" "$KEY" artifacts.tar.gz
+          else
+            aws s3api get-object --bucket "$AWS_BUCKET_NAME" --key "$KEY" artifacts.tar.gz
+          fi
+          # See triage.yml's identically-named step: build.yml packs the
+          # archive with tar -czf ... . from inside .artifacts/, which
+          # stores every member with a leading "./" - a full extraction
+          # sidesteps that instead of naming "bin/$SOLVER" as the member.
+          mkdir -p "$RUNNER_TEMP/target-bin"
+          tar -xzf artifacts.tar.gz -C "$RUNNER_TEMP/target-bin"
+          mv "$RUNNER_TEMP/target-bin/bin/$SOLVER" "$RUNNER_TEMP/target-bin/$SOLVER"
+          chmod +x "$RUNNER_TEMP/target-bin/$SOLVER"
+          echo "$RUNNER_TEMP/target-bin" >> "$GITHUB_PATH"
+
+      - name: Print solver versions
+        run: |
+          "${{ inputs.solver }}" --version
+          "${{ steps.install-oracle.outputs.oracle_solver }}" --version || true
+
+      - name: Confirm the known bug still reproduces
+        run: |
+          python3 <<'PYEOF'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "src/triage")
+          import dedup
+
+          target_cmd = "${{ inputs.target_cmd }}"
+          oracle_cmd = "${{ inputs.oracle_cmd }}"
+          expected_kind = "${{ inputs.expected_kind }}"
+          expected_msg = "${{ inputs.expected_msg }}"
+
+          bug_files = sorted(Path("bugs_extracted").rglob("*.smt2"))
+          if not bug_files:
+              print("::error::no .smt2 files found in the pinned archive")
+              sys.exit(1)
+
+          IN, D = dedup.dedup(bug_files, target_cmd, oracle_cmd)
+          print(f"dedup confirmed {len(D)} unique bug(s) out of {len(bug_files)} triggers")
+          for tup, path in D:
+              print(f"  {tup} ({path.name})")
+
+          match = any(kind == expected_kind and msg == expected_msg for (_, kind, msg, _, _), _ in D)
+          if not match:
+              print(f"::error::REGRESSION: expected a confirmed ({expected_kind}, {expected_msg!r}) bug, "
+                    f"but it did not reconfirm - triage may have silently broken for this known bug")
+              sys.exit(1)
+          print(f"✅ known bug ({expected_kind}, {expected_msg!r}) still reconfirms")
+          PYEOF
