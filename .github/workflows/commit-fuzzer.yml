@@ -58,10 +58,6 @@ on:
         description: 'Git URL of the upstream solver repository to fuzz'
         required: true
         type: string
-      profile_repo_url:
-        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never fuzzed from, only the real upstream repo_url is'
-        required: true
-        type: string
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -106,10 +102,6 @@ on:
         type: string
       repo_url:
         description: 'Git URL of the upstream solver repository to fuzz'
-        required: true
-        type: string
-      profile_repo_url:
-        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never fuzzed from, only the real upstream repo_url is'
         required: true
         type: string
       commit_hash:
@@ -322,7 +314,6 @@ jobs:
         with:
           solver: ${{ inputs.solver }}
           repo_url: ${{ inputs.repo_url }}
-          profile_repo_url: ${{ inputs.profile_repo_url }}
 
       - name: Clone manifest-declared extra repos
         run: |
@@ -649,7 +640,6 @@ jobs:
         with:
           solver: ${{ inputs.solver }}
           repo_url: ${{ inputs.repo_url }}
-          profile_repo_url: ${{ inputs.profile_repo_url }}
 
       - name: Install fuzzing dependencies
         run: |
@@ -905,7 +895,7 @@ jobs:
             # checkout, since checking out an upstream commit_hash always
             # wipes it otherwise.
             rm -rf "$SOLVER/.cast" "$SOLVER-profile"
-            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            git clone --depth 1 "${{ github.server_url }}/${{ github.repository }}" "$SOLVER-profile"
             cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
             rm -rf "$SOLVER-profile"
             # Mirrors the backup/restore in "Checkout commit to fuzz" above -

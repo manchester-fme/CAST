@@ -43,10 +43,6 @@ on:
         description: 'Git URL of the upstream solver repository to build coverage for'
         required: true
         type: string
-      profile_repo_url:
-        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
-        required: true
-        type: string
       commit_hash:
         description: 'Optional: commit hash to build coverage mapping for (defaults to HEAD)'
         required: false
@@ -68,10 +64,6 @@ on:
         type: string
       repo_url:
         description: 'Git URL of the upstream solver repository to build coverage for'
-        required: true
-        type: string
-      profile_repo_url:
-        description: 'Git URL of the fork hosting .cast/ (build profile + manifest.json) -- the fork itself is never built from, only the real upstream repo_url is'
         required: true
         type: string
       commit_hash:
@@ -115,7 +107,7 @@ jobs:
           # checking out an upstream commit always wipes it otherwise.
           layer_profile() {
             rm -rf "$SOLVER/.cast" "$SOLVER-profile"
-            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            git clone --depth 1 "${{ github.server_url }}/${{ github.repository }}" "$SOLVER-profile"
             cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
             rm -rf "$SOLVER-profile"
           }
@@ -209,7 +201,7 @@ jobs:
           # checking out an upstream commit always wipes it otherwise.
           layer_profile() {
             rm -rf "$SOLVER/.cast" "$SOLVER-profile"
-            git clone --depth 1 "${{ inputs.profile_repo_url }}" "$SOLVER-profile"
+            git clone --depth 1 "${{ github.server_url }}/${{ github.repository }}" "$SOLVER-profile"
             cp -r "$SOLVER-profile/.cast" "$SOLVER/.cast"
             rm -rf "$SOLVER-profile"
           }
@@ -320,7 +312,6 @@ jobs:
         with:
           solver: ${{ inputs.solver }}
           repo_url: ${{ inputs.repo_url }}
-          profile_repo_url: ${{ inputs.profile_repo_url }}
 
       - name: Download all coverage mappings
         uses: actions/download-artifact@v4

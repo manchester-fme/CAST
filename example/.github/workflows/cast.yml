@@ -23,11 +23,12 @@ run-name: >-
 # This fork is used purely to host .cast/ (this file plus manifest.json/
 # build.sh) -- it is never itself built, fuzzed, or coverage-mapped, and
 # nothing keeps it merged with upstream any more. build/fuzz/coverage/
-# daily-check below all take two repo URLs: repo_url (real upstream --
-# where the actual solver source these jobs build/fuzz/coverage-map comes
-# from) and profile_repo_url (this fork -- where .cast/ comes from, layered
-# on top of the upstream checkout). manager only needs repo_url; it never
-# touches .cast/.
+# daily-check below all set repo_url to real upstream (where the actual
+# solver source these jobs build/fuzz/coverage-map comes from) and layer
+# .cast/ on top from this fork automatically -- github.repository already
+# resolves to this fork inside a workflow_call'd job, so nothing needs to
+# be passed explicitly for that part. manager only needs repo_url; it
+# never touches .cast/.
 #
 # daily-check keeps its own schedule (offset from the cycle hours) since
 # it's what keeps the coverage map fuzz relies on fresh -- it calls
@@ -91,7 +92,6 @@ jobs:
     with:
       solver: YOUR_SOLVER
       repo_url: YOUR_UPSTREAM_REPO_URL  # e.g. https://github.com/cvc5/cvc5 -- real upstream; source always comes from here, never the fork
-      profile_repo_url: ${{ github.server_url }}/${{ github.repository }}  # this fork -- hosts .cast/ only
       build_script: YOUR_SOLVER/.cast/build.sh
       binary_path: build/bin/YOUR_SOLVER
       commit_hash: ${{ inputs.commit_hash }}
@@ -108,7 +108,6 @@ jobs:
     with:
       solver: YOUR_SOLVER
       repo_url: YOUR_UPSTREAM_REPO_URL
-      profile_repo_url: ${{ github.server_url }}/${{ github.repository }}
       solver_dir: YOUR_SOLVER/.cast
       stop_buffer_minutes: 60  # GitHub's default 360-min job timeout minus this = ~5h fuzz budget
     secrets: inherit
@@ -135,6 +134,5 @@ jobs:
     with:
       solver: YOUR_SOLVER
       repo_url: YOUR_UPSTREAM_REPO_URL
-      profile_repo_url: ${{ github.server_url }}/${{ github.repository }}
       solver_dir: YOUR_SOLVER/.cast
     secrets: inherit
