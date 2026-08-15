@@ -225,8 +225,20 @@ jobs:
 
           manager = get_state_manager(solver, namespace=namespace)
 
+          build_prefix = manager.production_build_prefix()
+          build_paginator = manager.s3_client.get_paginator("list_objects_v2")
+          available_builds = set()
+          for page in build_paginator.paginate(Bucket=manager.bucket, Prefix=build_prefix):
+              for obj in page.get("Contents", []):
+                  key = obj["Key"]
+                  if key.endswith(".tar.gz"):
+                      available_builds.add(key[len(build_prefix):-len(".tar.gz")])
+          print(f"{len(available_builds)} production build(s) available for {solver} under {build_prefix}: {sorted(available_builds)}")
+
           if given_commit:
               commit_hash = given_commit
+              if commit_hash not in available_builds:
+                  print(f"::warning::no production build found for commit {commit_hash} - the fetch step below will 404")
           else:
               commit_hash = manager.get_latest_available_build()
               if not commit_hash:
