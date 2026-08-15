@@ -95,7 +95,7 @@ on:
       oracle_cmd:
         description: "Oracle solver command"
         type: string
-        default: "cvc5 --check-models --check-proofs"
+        default: "cvc5 --check-models --check-proofs -q"
       post:
         description: "Actually file GitHub issues (default: dry run, prints drafts only)"
         type: boolean

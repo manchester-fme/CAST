@@ -129,7 +129,7 @@ def main():
             print("⏭️ Test uses unsupported commands (skipping)")
         sys.exit(1)
     
-    cvc5_flags = ['--check-models', '--check-proofs', '--strings-exp']
+    cvc5_flags = ['--check-models', '--check-proofs', '--strings-exp', '-q']
     solver_flags = args.solver_flags or []
     
     cvc5_exit, cvc5_result, cvc5_stdout, cvc5_stderr = run_solver(

@@ -41,7 +41,7 @@ class SimpleCommitFuzzer:
     KNOWN_SOLVER_EXTRA_ARGS = {
         # 2GB/process (matches max_process_memory_mb above)
         'z3': 'smt.threads=1 memory_max_size=2048 model_validate=true',
-        'cvc5': '--check-models --check-proofs --strings-exp',
+        'cvc5': '--check-models --check-proofs --strings-exp -q',
     }
 
     def __init__(

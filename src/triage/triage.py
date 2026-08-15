@@ -131,7 +131,7 @@ def parse_args(argv):
     parser.add_argument(
         "--oracle-cmd",
         required=True,
-        help="oracle solver command line, e.g. 'cvc5 --check-models --check-proofs'",
+        help="oracle solver command line, e.g. 'cvc5 --check-models --check-proofs -q'",
     )
     parser.add_argument(
         "--out-dir",

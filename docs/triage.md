@@ -13,7 +13,7 @@ minimized, deduplicated GitHub issues. Lives in `src/triage/`.
 ### Inputs
 - A `.tar.gz`/`.zip` archive of `incorrect-*.smt2` / `crash-*.smt2` triggers
 - Target solver command line (e.g. `z3 model_validate=true`)
-- Oracle solver command line (e.g. `cvc5 --check-models --check-proofs`)
+- Oracle solver command line (e.g. `cvc5 --check-models --check-proofs -q`)
 
 ### Outputs
 - Deduplicated, confirmed trigger files (`dedup_out/`)
@@ -72,7 +72,7 @@ minimized, deduplicated GitHub issues. Lives in `src/triage/`.
 ```
 python3 src/triage/triage.py bugs.tar.gz \
   --target-cmd "z3 model_validate=true" \
-  --oracle-cmd "cvc5 --check-models --check-proofs"
+  --oracle-cmd "cvc5 --check-models --check-proofs -q"
 # add --post to actually file issues instead of a dry run
 ```
 Or `.github/workflows/triage.yml`, both `workflow_dispatch` (manual) and

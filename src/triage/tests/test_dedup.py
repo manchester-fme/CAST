@@ -356,7 +356,7 @@ class RealSolverRegressionTest(unittest.TestCase):
     if z3/cvc5 aren't installed."""
 
     TARGET_CMD = "z3 model_validate=true"
-    ORACLE_CMD = "cvc5 --check-models --check-proofs"
+    ORACLE_CMD = "cvc5 --check-models --check-proofs -q"
     ARCHIVES_DIR = TESTS_DIR / "fixtures" / "archives"
 
     def setUp(self):
@@ -410,7 +410,7 @@ class RealCrashFixtureTests(unittest.TestCase):
         self._check("z3-invalid-model.smt2", "z3 model_validate=true", "an invalid model was generated")
 
     def test_cvc5_assertion_crash(self):
-        self._check("cvc5-assertion.smt2", "cvc5 --check-models --check-proofs", "ASSERTION")
+        self._check("cvc5-assertion.smt2", "cvc5 --check-models --check-proofs -q", "ASSERTION")
 
 
 if __name__ == "__main__":
