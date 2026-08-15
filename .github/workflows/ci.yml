@@ -86,12 +86,14 @@ jobs:
       # 4.17.0 build from manchester-fme/CAST_triage's release instead.
       - name: Install z3 4.17.0 (best effort)
         run: |
-          curl -sL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz" || true
-          if [ -s z3.tar.gz ]; then
+          curl -fsSL -o z3.tar.gz "https://github.com/manchester-fme/CAST_triage/releases/download/solver-binaries-v1/z3-4.17.0-linux-x64.tar.gz" || true
+          if [ -s z3.tar.gz ] && tar -tzf z3.tar.gz >/dev/null 2>&1; then
             mkdir -p "$RUNNER_TEMP/z3-bin"
             tar -xzf z3.tar.gz -C "$RUNNER_TEMP/z3-bin"
             chmod +x "$RUNNER_TEMP/z3-bin/z3"
             echo "$RUNNER_TEMP/z3-bin" >> "$GITHUB_PATH"
+          else
+            echo "z3 4.17.0 download unavailable or invalid -- skipping (real-z3 tests self-skip via shutil.which)"
           fi
 
       - name: Run src/triage's test suite
