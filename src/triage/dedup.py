@@ -12,6 +12,7 @@ https://github.com/testsmt/yinyang/blob/e5f1c13eb4df8f54f6556c9869d5e21299df0fc3
 """
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -289,12 +290,21 @@ def add_to_D(D, tup, path):
     D.append((tup, path))
 
 
+DEBUG = bool(os.environ.get("CAST_TRIAGE_DEBUG"))
+
+
+def _dbg(path, msg):
+    if DEBUG:
+        print(f"[triage-debug] {path.name}: {msg}", file=sys.stderr, flush=True)
+
+
 def confirm_crash(path, target_cmd):
     """Return the matched crash signature if target_cmd still crashes on
     path, else None. Shared with reduce.py's interestingness test so a
     reduction is judged by the exact same rule dedup() uses."""
     verdict, output = run_solver(target_cmd, path)
     if verdict != "crash":
+        _dbg(path, f"crash not reconfirmed -- target verdict was '{verdict}', output: {output[:300]!r}")
         return None
     return crash_msg(output)
 
@@ -308,12 +318,14 @@ def confirm_soundness(path, text, target_cmd, oracle_cmd):
     oracle_name = oracle_cmd.split(" ")[0]
 
     # 3.1: soundness bug must reproduce on S_target
-    target_verdict, _ = run_solver(target_cmd, path)
-    oracle_verdict, _ = run_solver(oracle_cmd, path)
+    target_verdict, target_out = run_solver(target_cmd, path)
+    oracle_verdict, oracle_out = run_solver(oracle_cmd, path)
 
     if target_verdict not in ("sat", "unsat"):
+        _dbg(path, f"target gave no definitive verdict: '{target_verdict}', output: {target_out[:300]!r}")
         return None  # target itself gave no definitive verdict
     if oracle_verdict not in ("sat", "unsat") or oracle_verdict == target_verdict:
+        _dbg(path, f"no disagreement -- target='{target_verdict}' oracle='{oracle_verdict}', oracle output: {oracle_out[:300]!r}")
         return None  # no definitive disagreement between target and oracle
 
     # 3.2: one solver said sat, the other unsat. Take the sat side's model,
@@ -344,9 +356,11 @@ def confirm_soundness(path, text, target_cmd, oracle_cmd):
     elif check_target == "unsat" and check_oracle == "unsat":
         wrong_solver = sat_solver  # S1 was wrong
     else:
+        _dbg(path, f"grounded validation formula inconclusive -- target='{check_target}' oracle='{check_oracle}' (target_verdict was '{target_verdict}', oracle_verdict was '{oracle_verdict}')")
         return None  # validation formula itself inconclusive
 
     if wrong_solver != target_name:
+        _dbg(path, f"model-grounding blames the oracle ({wrong_solver}), not the target -- target_verdict='{target_verdict}' oracle_verdict='{oracle_verdict}'")
         return None  # bug is in the oracle, not the target we're triaging
 
     # target's own verdict tells us which soundness property broke:
