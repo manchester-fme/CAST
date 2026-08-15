@@ -313,6 +313,7 @@ jobs:
         if: steps.resolve.outputs.archive_found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CAST_TRIAGE_DEBUG: "1"
         run: |
           python3 src/triage/triage.py "${{ steps.resolve.outputs.archive }}" \
             --target-cmd "${{ inputs.target_cmd }}" \
