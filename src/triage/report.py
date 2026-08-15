@@ -110,42 +110,6 @@ def cast_version():
 
 DISPLAY_NAME = "bug.smt2"
 
-AI_TITLE_MODEL = "openai/gpt-4o-mini"
-
-
-def ai_title_refinement(kind, msg, datatypes, text):
-    """Best-effort short phrase (via `gh models run`) making the mechanical
-    title slightly more precise, e.g. what about the string/int handling
-    actually broke. Returns None on any failure -- missing gh-models
-    extension, no model access on this token, timeout, empty/bad output --
-    so the caller always has the plain mechanical title to fall back to."""
-    if shutil.which("gh") is None:
-        return None
-
-    prompt = (
-        f"An SMT solver {kind} bug was found by fuzzing. Failure: {msg!r}. "
-        f"Sorts involved: {datatypes}. Trigger (SMT-LIB2):\n{text[:1500]}\n\n"
-        "In 8 words or fewer, name the specific thing that's actually wrong "
-        "(e.g. what construct or interaction causes it) to append to a "
-        "GitHub issue title. Reply with ONLY that phrase -- no punctuation "
-        "at the end, no quotes, no markdown, one line."
-    )
-    try:
-        out = subprocess.run(
-            ["gh", "models", "run", AI_TITLE_MODEL, prompt],
-            capture_output=True, text=True, timeout=20,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if out.returncode != 0 or not out.stdout.strip():
-        return None
-
-    phrase = out.stdout.strip().splitlines()[0].strip().strip('"\'` ')
-    if not phrase or len(phrase) > 80:
-        return None
-    return phrase
-
 
 def build_report(path, target_cmd, oracle_cmd, kind, msg):
     text = path.read_text(errors="ignore")
@@ -155,13 +119,6 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
         title = f"[CAST] {msg.capitalize()} Soundness bug related to {datatypes}"
     else:
         title = f"[CAST] Crash: {msg} related to {datatypes}"
-
-    # title stays the exact mechanical string above if this comes back empty
-    # -- that's also what find_existing_issue() dedups on (see below), so a
-    # missing/flaky AI call never breaks duplicate detection
-    refinement = ai_title_refinement(kind, msg, datatypes, text)
-    if refinement:
-        title = f"{title} -- {refinement}"
 
     # the real trigger's filename is an internal, creduce-mangled name;
     # show it in the issue under a generic name instead (see docs/report.txt)
@@ -181,11 +138,7 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
 
 
 def find_existing_issue(title, repo=None):
-    """Matches on the mechanical part of the title (before any ' -- AI
-    refinement' suffix), so dedup still works whether or not the AI call
-    happened to succeed on either report -- see build_report()."""
-    base_title = title.split(" -- ", 1)[0]
-    cmd = ["gh", "issue", "list", "--search", f'"{base_title}" in:title', "--state", "all",
+    cmd = ["gh", "issue", "list", "--search", f'"{title}" in:title', "--state", "all",
            "--json", "number,title,url", "--limit", "5"]
     if repo:
         cmd += ["--repo", repo]
@@ -193,7 +146,7 @@ def find_existing_issue(title, repo=None):
     if result.returncode != 0:
         return None
     for item in json.loads(result.stdout or "[]"):
-        if item["title"].split(" -- ", 1)[0] == base_title:
+        if item["title"] == title:
             return item
     return None
 

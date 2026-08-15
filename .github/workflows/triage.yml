@@ -111,11 +111,6 @@ permissions:
   # needed to exchange this job's OIDC token for R2 access via the broker
   # Lambda, both for auto-discovery and for fetching the target build
   id-token: write
-  # lets report.py ask GitHub Models for a short title refinement (best
-  # effort -- report.py falls back to the plain mechanical title if this
-  # permission, the gh-models extension, or the API call itself is
-  # unavailable)
-  models: read
 
 jobs:
   triage:
@@ -340,14 +335,6 @@ jobs:
         run: |
           "${{ inputs.solver }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version
-
-      # Best effort only -- report.py's ai_title_refinement() falls back to
-      # the plain mechanical title if this fails or isn't authorized
-      - name: Install gh-models extension (for AI title refinement)
-        if: steps.resolve.outputs.archive_found == 'true'
-        run: gh extension install github/gh-models || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # GH_TOKEN authenticates `gh issue create` when --post is set (see
       # report.py); unused, and gh is never invoked, on a dry run.
