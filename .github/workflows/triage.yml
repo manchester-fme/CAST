@@ -279,8 +279,17 @@ jobs:
           fi
           # collect_build_artifacts.sh always packs the binary at bin/<solver>
           # inside the archive, regardless of solver -- see that script.
+          # Extract the whole archive rather than naming "bin/$SOLVER" as the
+          # member to extract: build.yml's "Compress collected artifacts"
+          # step runs `tar -czf ... .` from inside .artifacts/, which GNU tar
+          # stores with a leading "./" on every member (e.g. "./bin/cvc5") --
+          # asking tar to extract the exact name "bin/$SOLVER" never matches
+          # that and always fails with "Not found in archive", regardless of
+          # commit. A full extraction sidesteps the leading-"./" mismatch
+          # entirely (verified locally: reproduces the exact failure with a
+          # named member, succeeds with a full extract).
           mkdir -p "$RUNNER_TEMP/target-bin"
-          tar -xzf artifacts.tar.gz -C "$RUNNER_TEMP/target-bin" "bin/$SOLVER"
+          tar -xzf artifacts.tar.gz -C "$RUNNER_TEMP/target-bin"
           mv "$RUNNER_TEMP/target-bin/bin/$SOLVER" "$RUNNER_TEMP/target-bin/$SOLVER"
           chmod +x "$RUNNER_TEMP/target-bin/$SOLVER"
           echo "$RUNNER_TEMP/target-bin" >> "$GITHUB_PATH"
