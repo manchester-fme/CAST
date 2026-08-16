@@ -1,4 +1,4 @@
-name: Regression Test
+name: Pre-Release
 
 # Reusable, workflow_call-only: proves triage's *detection* logic (fetch the
 # pinned build, fetch the pinned bug archive, run dedup.dedup() with the
