@@ -73,10 +73,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 (full history + tags) - report.py's cast_version()
+      # runs `git describe --tags` to label filed issues with CAST's own
+      # version; actions/checkout's default shallow, tag-less clone leaves
+      # no tags for it to find, so it silently falls back to a bare commit
+      # SHA on every real run.
       - uses: actions/checkout@v4
         with:
           repository: manchester-fme/CAST
           ref: main
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -226,5 +232,7 @@ jobs:
               sys.exit(1)
           print(f"✅ known bug ({expected_kind}, {expected_msg!r}) still reconfirms")
 
-          report.report(matching_path, target_cmd, oracle_cmd, post=True, out=None, repo=os.environ["REPO"])
+          commit_hash = "${{ inputs.commit_hash }}"
+          report.report(matching_path, target_cmd, oracle_cmd, post=True, out=None,
+                        repo=os.environ["REPO"], commit_hash=commit_hash)
           PYEOF

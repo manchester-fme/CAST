@@ -111,7 +111,7 @@ def cast_version():
 DISPLAY_NAME = "bug.smt2"
 
 
-def build_report(path, target_cmd, oracle_cmd, kind, msg):
+def build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash=None):
     text = path.read_text(errors="ignore")
     datatypes = datatypes_from_bitstring(dedup.datatype_bitstring(text))
 
@@ -130,7 +130,15 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg):
         transcript += [f"$ {oracle_cmd} {DISPLAY_NAME}", oracle_out.strip(), ""]
     transcript += [f"$ cat {DISPLAY_NAME}", pretty_print_smt2(text)]
 
-    lines = [f"commit: {solver_commit_hash(target_cmd)}", "", "```bash"]
+    # commit_hash, when given, is the solver commit CAST actually built and
+    # fuzzed (known from S3/the caller's own inputs) - prefer it over
+    # solver_commit_hash()'s git introspection, which only works when the
+    # binary sits inside a live git checkout. In CI the binary is always a
+    # prebuilt tarball extracted with no .git dir, so that introspection
+    # silently falls back to "unknown" on every real run (see caller sites).
+    commit = commit_hash[:7] if commit_hash else solver_commit_hash(target_cmd)
+
+    lines = [f"commit: {commit}", "", "```bash"]
     lines += transcript
     lines += ["```", "", "---", f"Found with [CAST {cast_version()}](https://github.com/manchester-fme/CAST)"]
 
@@ -162,13 +170,13 @@ def post_issue(title, body, repo=None):
     print(result.stdout.strip(), flush=True)  # gh prints the created issue's URL
 
 
-def report(path, target_cmd, oracle_cmd, post, out, repo=None):
+def report(path, target_cmd, oracle_cmd, post, out, repo=None, commit_hash=None):
     dedup.check_solver_installed(target_cmd)
     if oracle_cmd:
         dedup.check_solver_installed(oracle_cmd)
 
     kind, msg = confirm(path, target_cmd, oracle_cmd)
-    title, body = build_report(path, target_cmd, oracle_cmd, kind, msg)
+    title, body = build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash)
 
     print(f"--- title ---\n{title}\n--- body ---\n{body}")
 
@@ -218,9 +226,17 @@ def parse_args(argv):
         "--repo",
         help="file the issue on this repo (owner/name) instead of the current directory's git remote",
     )
+    parser.add_argument(
+        "--commit-hash",
+        help="solver commit this trigger was found against (preferred over introspecting the "
+        "binary's own directory, which only works when it sits inside a live git checkout)",
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    report(Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out, args.repo)
+    report(
+        Path(args.smt2_file), args.target_cmd, args.oracle_cmd, args.post, args.out, args.repo,
+        args.commit_hash,
+    )
