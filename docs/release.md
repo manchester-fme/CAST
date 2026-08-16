@@ -1,8 +1,8 @@
 # Cutting a CAST Release
 
-Three gates, in order. Don't skip ahead - each one is cheap insurance against
-a different failure mode, and none of them subsume each other (see "What
-each gate does *not* catch" below).
+Three gates, then filing the release. Don't skip ahead - each gate is cheap
+insurance against a different failure mode, and none of them subsume each
+other (see "What each gate does *not* catch" below).
 
 ## 1. `pre-release.yml` passes for both z3 and cvc5
 
@@ -44,12 +44,27 @@ multi-hop `uses:` chain a real consumer's `cast.yml` walks - it's what would
 have caught the annotated-tag bug that prompted this doc.
 
 If both solvers complete a clean build -> fuzz -> triage cycle: the tag is
-good, the release stands as-is.
+good - move on to gate 4.
 
 If either fails: the tag was cut on a bad commit. Move it
 (`git push origin :refs/tags/vX.Y.Z`, retag, re-push) or delete it and
 restart from gate 1 - don't leave a published tag pointing at a commit that
 failed its own release gate.
+
+## 4. File the GitHub Release
+
+Only once gate 3 has passed for both solvers:
+
+```
+gh release create vX.Y.Z --title vX.Y.Z --notes "..."
+```
+
+This is the step that actually makes `vX.Y.Z` a release rather than just a
+tag that happened to pass its checks - it's the public signal to consumers
+that it's safe to bump their `cast.yml` refs to it, and it's where the
+release description belongs (see gate 2 - never in the tag message). Notes
+should summarize what changed since the previous release; the closed
+issues under that version's label (e.g. `v0.2.0`) are the source for that.
 
 ## What each gate does *not* catch
 
