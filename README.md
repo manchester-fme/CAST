@@ -90,11 +90,13 @@ Pin the `uses:` refs to a released CAST tag (e.g. `@v0.1.1`), not `@main` -
 silently change your pipeline's behavior underneath you. Bump the tag
 deliberately when you want to pick up a new CAST release.
 
-(Maintainers: cut release tags as lightweight (`git tag vX.Y.Z <sha>`, no
-`-a`/`-m`), and put the release description in a GitHub Release instead of
-the tag message. Annotated tags break nested reusable-workflow calls that
-resolve relative to them, e.g. `coverage-daily-check.yml`'s call to
-`./coverage-mapper.yml` - see https://github.com/orgs/community/discussions/55649.)
+(Maintainers: see [docs/release.md](docs/release.md) for the full
+release procedure. Short version: cut release tags as lightweight
+(`git tag vX.Y.Z <sha>`, no `-a`/`-m`), and put the release description
+in a GitHub Release instead of the tag message. Annotated tags break
+nested reusable-workflow calls that resolve relative to them, e.g.
+`coverage-daily-check.yml`'s call to `./coverage-mapper.yml` - see
+https://github.com/orgs/community/discussions/55649.)
 
 ```yaml
 on:

@@ -1,0 +1,64 @@
+# Cutting a CAST Release
+
+Three gates, in order. Don't skip ahead - each one is cheap insurance against
+a different failure mode, and none of them subsume each other (see "What
+each gate does *not* catch" below).
+
+## 1. `pre-release.yml` passes for both z3 and cvc5
+
+Dispatch `pre-release.yml` from each fork's own caller workflow (hardcoded to
+that fork's pinned known-good commit + bug archive - see the file's header
+in `manchester-fme/CAST` for how callers are wired). Both must pass:
+
+- z3: commit `0bd679a`, expects a confirmed crash ("an invalid model was
+  generated")
+- cvc5: commit `be30d27`, expects a confirmed crash ("ASSERTION")
+
+This proves triage's detection logic (build fetch, oracle install,
+`dedup.dedup()`) still reconfirms known real bugs. It does not touch
+build/fuzz, and does not exercise any cross-repo reusable-workflow chain.
+
+## 2. Tag the release candidate commit
+
+Lightweight tag only - **not** `git tag -a`/`-m`:
+
+```
+git tag vX.Y.Z <sha>
+git push origin vX.Y.Z
+```
+
+Put the release description in a GitHub Release (`gh release create vX.Y.Z
+--notes "..."`), not in the tag message. An annotated tag breaks nested
+reusable-workflow calls that resolve relative to it (e.g.
+`coverage-daily-check.yml`'s call to `./coverage-mapper.yml`) - see
+https://github.com/orgs/community/discussions/55649. This is also documented
+next to the `cast.yml` tag-pinning advice in the main README.
+
+## 3. One full CAST cycle on z3 and cvc5, pinned to the new tag
+
+Dispatch `cast.yml`'s `action: cycle` (or the underlying
+`manager.yml`/`build.yml`/`commit-fuzzer.yml`/`triage.yml` chain directly)
+against both real forks, with the template's `uses:` refs pointed at
+`@vX.Y.Z`. This is the only gate that actually walks the cross-repo,
+multi-hop `uses:` chain a real consumer's `cast.yml` walks - it's what would
+have caught the annotated-tag bug that prompted this doc.
+
+If both solvers complete a clean build -> fuzz -> triage cycle: the tag is
+good, the release stands as-is.
+
+If either fails: the tag was cut on a bad commit. Move it
+(`git push origin :refs/tags/vX.Y.Z`, retag, re-push) or delete it and
+restart from gate 1 - don't leave a published tag pointing at a commit that
+failed its own release gate.
+
+## What each gate does *not* catch
+
+- Gate 1 (`pre-release.yml`) never builds from source, never fuzzes, never
+  files a report, and only knows about two hardcoded (commit, bug) pairs -
+  it says nothing about a new bug class, a new solver, or whether the
+  solver still compiles.
+- Gate 3 (full cycle) is the expensive one (~6h per solver) - only run it
+  once gate 1 is already green, not as a substitute for it.
+- Neither gate is wired into git itself - nothing blocks a tag from being
+  pushed without either check having run. This is a checklist, not an
+  enforced CI gate.
