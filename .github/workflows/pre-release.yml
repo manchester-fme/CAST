@@ -3,12 +3,13 @@ name: Pre-Release
 # Reusable, workflow_call-only: proves triage's *detection* logic (fetch the
 # pinned build, fetch the pinned bug archive, run dedup.dedup() with the
 # given target_cmd/oracle_cmd) still confirms a specific, already-known
-# real bug - fails the job if it doesn't. Deliberately narrower than
-# triage.yml's full dedup -> reduce -> dedup -> report pipeline: a
-# regression test only needs to prove detection still works, not
-# re-minimize or re-file anything (report.py already dedupes against an
-# existing issue title, so re-running the full pipeline against a
-# known-filed bug is safe but wasteful for this purpose).
+# real bug - fails the job if it doesn't - then files it via report.py
+# (--post), same as triage.yml would. Still skips reduce (the pinned
+# archive's trigger is already minimized from when it was first filed, so
+# there's nothing to re-minimize). report.py dedupes by exact issue title
+# (find_existing_issue, --state all) before filing, so re-running this
+# against an already-filed - even closed - bug is a no-op ("not filing a
+# duplicate"), not a fresh issue every time.
 #
 # Intentionally workflow_call only - no workflow_dispatch/schedule trigger
 # here. Callers (see e.g. a fork's own .github/workflows/regression-test.yml)
@@ -65,6 +66,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  issues: write
 
 jobs:
   regression-test:
@@ -178,13 +180,24 @@ jobs:
           "${{ inputs.solver }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version || true
 
-      - name: Confirm the known bug still reproduces
+      # GH_TOKEN authenticates `gh issue create` inside report.py's --post
+      # path. REPO mirrors triage.yml's identically-reasoned default:
+      # github.repository resolves to the calling fork (e.g.
+      # manchester-fme/z3) here, not manchester-fme/CAST, since this runs
+      # workflow_call'd from that fork's own caller workflow - issues
+      # belong on the fork that owns the bug.
+      - name: Confirm the known bug still reproduces, then file it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           python3 <<'PYEOF'
+          import os
           import sys
           from pathlib import Path
           sys.path.insert(0, "src/triage")
           import dedup
+          import report
 
           target_cmd = "${{ inputs.target_cmd }}"
           oracle_cmd = "${{ inputs.oracle_cmd }}"
@@ -201,10 +214,17 @@ jobs:
           for tup, path in D:
               print(f"  {tup} ({path.name})")
 
-          match = any(kind == expected_kind and msg == expected_msg for (_, kind, msg, _, _), _ in D)
-          if not match:
+          matching_path = None
+          for tup, path in D:
+              _, kind, msg, _, _ = tup
+              if kind == expected_kind and msg == expected_msg:
+                  matching_path = path
+                  break
+          if matching_path is None:
               print(f"::error::REGRESSION: expected a confirmed ({expected_kind}, {expected_msg!r}) bug, "
                     f"but it did not reconfirm - triage may have silently broken for this known bug")
               sys.exit(1)
           print(f"✅ known bug ({expected_kind}, {expected_msg!r}) still reconfirms")
+
+          report.report(matching_path, target_cmd, oracle_cmd, post=True, out=None, repo=os.environ["REPO"])
           PYEOF
