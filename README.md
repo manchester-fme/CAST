@@ -85,7 +85,7 @@ Set `repo_url` to your own fork (not upstream). Only change
 `solver`/`repo_url`/`build_script`/`binary_path`/`solver_dir` per job below
 - leave the schedule and job structure as-is.
 
-Pin the `uses:` refs to a released CAST tag (e.g. `@v0.1.0`), not `@main` -
+Pin the `uses:` refs to a released CAST tag (e.g. `@v0.1.1`), not `@main` -
 `@main` tracks CAST's active development branch, so a push to CAST could
 silently change your pipeline's behavior underneath you. Bump the tag
 deliberately when you want to pick up a new CAST release.
@@ -101,7 +101,7 @@ on:
 jobs:
   build:
     if: inputs.action == 'build' || github.event.schedule == '5,35 * * * *'
-    uses: manchester-fme/CAST/.github/workflows/build.yml@v0.1.0
+    uses: manchester-fme/CAST/.github/workflows/build.yml@v0.1.1
     with:
       solver: <solver>
       repo_url: ${{ github.server_url }}/${{ github.repository }}
