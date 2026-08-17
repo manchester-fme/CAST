@@ -117,16 +117,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # fetch-depth: 0 (full history + tags) - report.py's cast_version()
-      # runs `git describe --tags` to label filed issues with CAST's own
-      # version; actions/checkout's default shallow, tag-less clone leaves
-      # no tags for it to find, so it silently falls back to a bare commit
-      # SHA on every real run.
       - uses: actions/checkout@v4
         with:
           repository: manchester-fme/CAST
           ref: main
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
