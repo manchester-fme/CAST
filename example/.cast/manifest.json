@@ -17,6 +17,7 @@
     "tests_root": "<path to your seed test corpus, relative to your repo root>",
     "list_tests_command": "<shell command whose stdout is one seed-test path per line, relative to tests_root>",
     "target_binary_path": "./build/bin/<YOUR_SOLVER>",
+    "solver_cli": "<extra CLI flags always passed when fuzzing/triage invoke this solver's own binary, e.g. '--check-models --check-proofs --strings-exp -q'; empty string if none>",
     "oracle_solver": "<name of the reference solver to diff against, e.g. z3>",
     "oracle_fetch_fallback": {
       "type": "pip",
