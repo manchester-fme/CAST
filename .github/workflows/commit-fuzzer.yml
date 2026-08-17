@@ -56,9 +56,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to fuzz'
-        required: true
+        description: 'Git URL of the upstream solver repository to fuzz; leave empty to derive it from fuzzer.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -103,9 +104,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to fuzz'
-        required: true
+        description: 'Git URL of the upstream solver repository to fuzz; leave empty to derive it from fuzzer.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to analyze (defaults to fuzzer-schedule selection)'
         required: false
@@ -264,6 +266,7 @@ jobs:
       total_tests: ${{ steps.extract-tests.outputs.total_tests }}
       total_jobs: ${{ steps.extract-tests.outputs.total_jobs }}
       commit_hash: ${{ steps.get-commit.outputs.commit_hash }}
+      resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
     permissions:
       actions: read
       contents: read
@@ -309,10 +312,16 @@ jobs:
         run: |
           pip install gitpython unidiff "libclang==17.0.6"
 
+      - name: Resolve repo_url from manifest.json if not provided
+        id: resolve-repo-url
+        uses: ./.github/actions/resolve-repo-url
+        with:
+          repo_url: ${{ inputs.repo_url }}
+
       - uses: ./.github/actions/clone-solver-source
         with:
           solver: ${{ inputs.solver || github.event.repository.name }}
-          repo_url: ${{ inputs.repo_url }}
+          repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
       - name: Clone manifest-declared extra repos
         run: |
@@ -631,7 +640,7 @@ jobs:
       - uses: ./.github/actions/clone-solver-source
         with:
           solver: ${{ inputs.solver || github.event.repository.name }}
-          repo_url: ${{ inputs.repo_url }}
+          repo_url: ${{ needs.commit-fuzzer.outputs.resolved_repo_url }}
 
       - name: Install fuzzing dependencies
         run: |
@@ -900,7 +909,7 @@ jobs:
             if [ -d "$SOLVER" ]; then
               echo "$SOLVER directory already exists, skipping clone"
             else
-              git clone "${{ inputs.repo_url }}" "$SOLVER"
+              git clone "${{ needs.commit-fuzzer.outputs.resolved_repo_url }}" "$SOLVER"
             fi
             # .cast/ only ever lives on the fork, never in upstream's tree
             # (see .github/actions/clone-solver-source) - layer it in now so

@@ -71,18 +71,20 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to build'
-        required: true
+        description: 'Git URL of the upstream solver repository to build; leave empty to derive it from fuzzer.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       build_script:
         description: 'Path to the solver build script; leave empty to default to <solver>/.cast/build.sh'
         required: false
         type: string
         default: ''
       binary_path:
-        description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: true
+        description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5); leave empty to derive it from fuzzer.target_binary_path in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
@@ -100,18 +102,20 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to build'
-        required: true
+        description: 'Git URL of the upstream solver repository to build; leave empty to derive it from fuzzer.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       build_script:
         description: 'Path to the solver build script; leave empty to default to <solver>/.cast/build.sh'
         required: false
         type: string
         default: ''
       binary_path:
-        description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5)'
-        required: true
+        description: 'Path to the built binary, relative to the solver checkout (e.g. build/bin/cvc5); leave empty to derive it from fuzzer.target_binary_path in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to the build queue'
         required: false
@@ -131,6 +135,7 @@ jobs:
       build_needed: ${{ steps.set-outputs.outputs.build_needed }}
       sha: ${{ steps.set-outputs.outputs.sha }}
       is_manual_build: ${{ steps.set-outputs.outputs.is_manual_build }}
+      resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
     steps:
       - name: Checkout
@@ -152,6 +157,12 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
+      - name: Resolve repo_url from manifest.json if not provided
+        id: resolve-repo-url
+        uses: ./.github/actions/resolve-repo-url
+        with:
+          repo_url: ${{ inputs.repo_url }}
+
       - name: Check build queue or add manual commit
         id: set-outputs
         run: |
@@ -168,10 +179,10 @@ jobs:
           else
             COMMIT_HASH=$(python src/scheduling/builder.py "$SOLVER" "${NAMESPACE_ARGS[@]}")
             if [ -z "$COMMIT_HASH" ] && [ "${{ inputs.force_run }}" = "true" ]; then
-              echo "⚡ Queue empty but force_run is set - resolving latest commit on ${{ inputs.repo_url }}"
-              COMMIT_HASH=$(git ls-remote "${{ inputs.repo_url }}" HEAD | cut -f1)
+              echo "⚡ Queue empty but force_run is set - resolving latest commit on ${{ steps.resolve-repo-url.outputs.repo_url }}"
+              COMMIT_HASH=$(git ls-remote "${{ steps.resolve-repo-url.outputs.repo_url }}" HEAD | cut -f1)
               if [ -z "$COMMIT_HASH" ]; then
-                echo "❌ Could not resolve HEAD commit for ${{ inputs.repo_url }}"
+                echo "❌ Could not resolve HEAD commit for ${{ steps.resolve-repo-url.outputs.repo_url }}"
                 exit 1
               fi
               echo "🔨 Forcing build of $COMMIT_HASH"
@@ -206,7 +217,21 @@ jobs:
       - uses: ./.github/actions/clone-solver-source
         with:
           solver: ${{ inputs.solver || github.event.repository.name }}
-          repo_url: ${{ inputs.repo_url }}
+          repo_url: ${{ needs.check-build-queue.outputs.resolved_repo_url }}
+      - name: Resolve binary_path from manifest.json if not provided
+        id: resolve-binary-path
+        run: |
+          BINARY_PATH="${{ inputs.binary_path }}"
+          if [ -z "$BINARY_PATH" ]; then
+            SOLVER="${{ inputs.solver || github.event.repository.name }}"
+            BINARY_PATH=$(jq -r '.fuzzer.target_binary_path // empty' "$SOLVER/.cast/manifest.json" | sed 's#^\./##')
+            if [ -z "$BINARY_PATH" ]; then
+              echo "::error::binary_path not provided and no fuzzer.target_binary_path found in .cast/manifest.json"
+              exit 1
+            fi
+            echo "Derived binary_path from manifest.json: $BINARY_PATH"
+          fi
+          echo "binary_path=$BINARY_PATH" >> "$GITHUB_OUTPUT"
       - name: Checkout commit
         run: |
           SOLVER="${{ inputs.solver || github.event.repository.name }}"
@@ -230,7 +255,7 @@ jobs:
       - name: Measure binary size
         working-directory: ${{ inputs.solver || github.event.repository.name }}
         run: |
-          BIN_PATH="${{ inputs.binary_path }}"
+          BIN_PATH="${{ steps.resolve-binary-path.outputs.binary_path }}"
           if [ -f "$BIN_PATH" ]; then
             BINARY_SIZE=$(du -h "$BIN_PATH" | cut -f1)
             BINARY_SIZE_BYTES=$(stat -f%z "$BIN_PATH" 2>/dev/null || stat -c%s "$BIN_PATH" 2>/dev/null)
@@ -247,7 +272,7 @@ jobs:
           SOLVER="${{ inputs.solver || github.event.repository.name }}"
           # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
           # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
-          BINARY_RELPATH=$(echo "${{ inputs.binary_path }}" | sed 's#^build/##')
+          BINARY_RELPATH=$(echo "${{ steps.resolve-binary-path.outputs.binary_path }}" | sed 's#^build/##')
           "$GITHUB_WORKSPACE/src/util/collect_build_artifacts.sh" "$SOLVER/build" .artifacts "$BINARY_RELPATH"
 
       - name: Compress collected artifacts
@@ -334,7 +359,21 @@ jobs:
       - uses: ./.github/actions/clone-solver-source
         with:
           solver: ${{ inputs.solver || github.event.repository.name }}
-          repo_url: ${{ inputs.repo_url }}
+          repo_url: ${{ needs.check-build-queue.outputs.resolved_repo_url }}
+      - name: Resolve binary_path from manifest.json if not provided
+        id: resolve-binary-path
+        run: |
+          BINARY_PATH="${{ inputs.binary_path }}"
+          if [ -z "$BINARY_PATH" ]; then
+            SOLVER="${{ inputs.solver || github.event.repository.name }}"
+            BINARY_PATH=$(jq -r '.fuzzer.target_binary_path // empty' "$SOLVER/.cast/manifest.json" | sed 's#^\./##')
+            if [ -z "$BINARY_PATH" ]; then
+              echo "::error::binary_path not provided and no fuzzer.target_binary_path found in .cast/manifest.json"
+              exit 1
+            fi
+            echo "Derived binary_path from manifest.json: $BINARY_PATH"
+          fi
+          echo "binary_path=$BINARY_PATH" >> "$GITHUB_OUTPUT"
       - name: Checkout commit
         run: |
           SOLVER="${{ inputs.solver || github.event.repository.name }}"
@@ -363,7 +402,7 @@ jobs:
       - name: Measure binary size
         working-directory: ${{ inputs.solver || github.event.repository.name }}
         run: |
-          BIN_PATH="${{ inputs.binary_path }}"
+          BIN_PATH="${{ steps.resolve-binary-path.outputs.binary_path }}"
           if [ -f "$BIN_PATH" ]; then
             BINARY_SIZE=$(du -h "$BIN_PATH" | cut -f1)
             BINARY_SIZE_BYTES=$(stat -f%z "$BIN_PATH" 2>/dev/null || stat -c%s "$BIN_PATH" 2>/dev/null)
@@ -380,7 +419,7 @@ jobs:
           SOLVER="${{ inputs.solver || github.event.repository.name }}"
           # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
           # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
-          BINARY_RELPATH=$(echo "${{ inputs.binary_path }}" | sed 's#^build/##')
+          BINARY_RELPATH=$(echo "${{ steps.resolve-binary-path.outputs.binary_path }}" | sed 's#^build/##')
           "$GITHUB_WORKSPACE/src/util/collect_build_artifacts.sh" "$SOLVER/build" .artifacts "$BINARY_RELPATH"
 
       - name: Compress collected artifacts

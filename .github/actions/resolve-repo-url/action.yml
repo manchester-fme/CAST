@@ -1,0 +1,43 @@
+name: Resolve repo_url from manifest.json if not provided
+description: >
+  Passes a given repo_url through unchanged. When empty, shallow-clones
+  the calling repo itself (github.server_url/github.repository -- always
+  the fork this job was called from, never CAST, never upstream -- see
+  clone-solver-source/action.yml's identical reasoning) and reads
+  <manifest_field>.repo_url from its own .cast/manifest.json. Safe to call
+  unconditionally: a non-empty repo_url short-circuits before any clone.
+
+inputs:
+  repo_url:
+    description: 'Upstream solver repo URL, or empty to derive it from .cast/manifest.json'
+    required: false
+    default: ''
+  manifest_field:
+    description: 'Top-level manifest.json section to read repo_url from (fuzzer or coverage)'
+    required: false
+    default: 'fuzzer'
+
+outputs:
+  repo_url:
+    description: 'The given repo_url, or the one derived from manifest.json'
+    value: ${{ steps.resolve.outputs.repo_url }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      run: |
+        REPO_URL="${{ inputs.repo_url }}"
+        if [ -z "$REPO_URL" ]; then
+          rm -rf .repo-url-resolve
+          git clone --depth 1 "${{ github.server_url }}/${{ github.repository }}" .repo-url-resolve
+          REPO_URL=$(jq -r '.${{ inputs.manifest_field }}.repo_url // empty' .repo-url-resolve/.cast/manifest.json)
+          rm -rf .repo-url-resolve
+          if [ -z "$REPO_URL" ]; then
+            echo "::error::repo_url not provided and no ${{ inputs.manifest_field }}.repo_url found in .cast/manifest.json"
+            exit 1
+          fi
+          echo "Derived repo_url from .cast/manifest.json: $REPO_URL"
+        fi
+        echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"

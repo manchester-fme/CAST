@@ -5,19 +5,15 @@ name: Coverage Daily Check
 # Generalizes cvc5-coverage-daily-check.yml and z3-coverage-daily-check.yml.
 # Same manifest-driven approach as coverage-mapper.yml (see that file's
 # header for the full rationale) - all solver-specific facts (extra repos to
-# clone, setup command, how tests are listed) come from
-# src/solvers/<solver>/manifest.json, not from branching in this file.
-# solver_dir defaults to src/solvers/<solver> and, like coverage-mapper.yml,
-# can point inside your own solver checkout instead; it's passed straight
-# through to the coverage-mapper.yml call below.
+# clone, setup command, how tests are listed) come from the calling fork's
+# own .cast/manifest.json, not from branching in this file.
+# solver/repo_url/solver_dir all default from that same manifest.json (and
+# github.event.repository.name for solver) when left empty - it's passed
+# straight through to the coverage-mapper.yml call below.
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Coverage Daily Check -> Run workflow
 #   - From another workflow: uses: ./.github/workflows/coverage-daily-check.yml (workflow_call)
-#
-# solver/repo_url are required - deliberately no default, so no caller can
-# silently inherit another solver's state under this workflow's own (forced)
-# namespace - see coverage-mapper.yml's header for the full rationale.
 
 on:
   workflow_call:
@@ -28,9 +24,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to check'
-        required: true
+        description: 'Git URL of the upstream solver repository to check; leave empty to derive it from coverage.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       solver_dir:
         description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
         required: false
@@ -44,9 +41,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to check'
-        required: true
+        description: 'Git URL of the upstream solver repository to check; leave empty to derive it from coverage.repo_url in .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       solver_dir:
         description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
         required: false
@@ -63,6 +61,7 @@ jobs:
       reason: ${{ steps.check-state.outputs.reason }}
       test_count: ${{ steps.count-tests.outputs.test_count }}
       commit_hash: ${{ steps.count-tests.outputs.commit_hash }}
+      resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
     steps:
       - name: Checkout
@@ -70,10 +69,16 @@ jobs:
         with:
           repository: manchester-fme/CAST
           ref: main
+      - name: Resolve repo_url from manifest.json if not provided
+        id: resolve-repo-url
+        uses: ./.github/actions/resolve-repo-url
+        with:
+          repo_url: ${{ inputs.repo_url }}
+          manifest_field: coverage
       - uses: ./.github/actions/clone-solver-source
         with:
           solver: ${{ inputs.solver || github.event.repository.name }}
-          repo_url: ${{ inputs.repo_url }}
+          repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
       - name: Fetch latest and clone manifest-declared extra repos
         run: |
@@ -163,7 +168,7 @@ jobs:
     uses: ./.github/workflows/coverage-mapper.yml
     with:
       solver: ${{ inputs.solver || github.event.repository.name }}
-      repo_url: ${{ inputs.repo_url }}
+      repo_url: ${{ needs.check-rebuild-needed.outputs.resolved_repo_url }}
       commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
       test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}
       solver_dir: ${{ inputs.solver_dir }}

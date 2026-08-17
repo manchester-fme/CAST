@@ -48,9 +48,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to monitor'
-        required: true
+        description: 'Git URL of the upstream solver repository to monitor; leave empty to derive it from fuzzer.repo_url in this repo''s .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
@@ -63,9 +64,10 @@ on:
         type: string
         default: ''
       repo_url:
-        description: 'Git URL of the upstream solver repository to monitor'
-        required: true
+        description: 'Git URL of the upstream solver repository to monitor; leave empty to derive it from fuzzer.repo_url in this repo''s .cast/manifest.json'
+        required: false
         type: string
+        default: ''
       commit_hash:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
@@ -97,12 +99,18 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
+      - name: Resolve repo_url from manifest.json if not provided
+        id: resolve-repo-url
+        uses: ./.github/actions/resolve-repo-url
+        with:
+          repo_url: ${{ inputs.repo_url }}
+
       - name: Run manager
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SOLVER="${{ inputs.solver || github.event.repository.name }}"
-          REPO_URL="${{ inputs.repo_url }}"
+          REPO_URL="${{ steps.resolve-repo-url.outputs.repo_url }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           if [ -n "${{ inputs.commit_hash }}" ]; then
