@@ -66,7 +66,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts); leave empty to default to this repo''s own name (github.event.repository.name)'
+        description: 'Solver name (namespaces the build queue and S3 keys); leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -97,7 +97,7 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue, S3 keys, and src/solvers/<solver> scripts); leave empty to default to this repo''s own name (github.event.repository.name)'
+        description: 'Solver name (namespaces the build queue and S3 keys); leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -135,6 +135,7 @@ jobs:
       build_needed: ${{ steps.set-outputs.outputs.build_needed }}
       sha: ${{ steps.set-outputs.outputs.sha }}
       is_manual_build: ${{ steps.set-outputs.outputs.is_manual_build }}
+      resolved_solver: ${{ steps.resolve-solver.outputs.solver }}
       resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
     steps:
@@ -157,6 +158,12 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
+
       - name: Resolve repo_url from manifest.json if not provided
         id: resolve-repo-url
         uses: ./.github/actions/resolve-repo-url
@@ -166,7 +173,7 @@ jobs:
       - name: Check build queue or add manual commit
         id: set-outputs
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           if [ -n "${{ inputs.commit_hash }}" ]; then
@@ -213,17 +220,17 @@ jobs:
           repository: manchester-fme/CAST
           ref: main
       - name: Clean stale checkout
-        run: rm -rf "${{ inputs.solver || github.event.repository.name }}"
+        run: rm -rf "${{ needs.check-build-queue.outputs.resolved_solver }}"
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ needs.check-build-queue.outputs.resolved_solver }}
           repo_url: ${{ needs.check-build-queue.outputs.resolved_repo_url }}
       - name: Resolve binary_path from manifest.json if not provided
         id: resolve-binary-path
         run: |
           BINARY_PATH="${{ inputs.binary_path }}"
           if [ -z "$BINARY_PATH" ]; then
-            SOLVER="${{ inputs.solver || github.event.repository.name }}"
+            SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
             BINARY_PATH=$(jq -r '.fuzzer.target_binary_path // empty' "$SOLVER/.cast/manifest.json" | sed 's#^\./##')
             if [ -z "$BINARY_PATH" ]; then
               echo "::error::binary_path not provided and no fuzzer.target_binary_path found in .cast/manifest.json"
@@ -234,26 +241,26 @@ jobs:
           echo "binary_path=$BINARY_PATH" >> "$GITHUB_OUTPUT"
       - name: Checkout commit
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "🔨 Building commit: $COMMIT_HASH"
           cd "$SOLVER"
           git checkout "$COMMIT_HASH"
           echo "Checked out commit: $(git rev-parse HEAD)"
 
-      - name: Build ${{ inputs.solver || github.event.repository.name }} static binary
-        run: ${{ inputs.build_script || format('{0}/.cast/build.sh', inputs.solver || github.event.repository.name) }} --static
+      - name: Build ${{ needs.check-build-queue.outputs.resolved_solver }} static binary
+        run: ${{ inputs.build_script || format('{0}/.cast/build.sh', needs.check-build-queue.outputs.resolved_solver) }} --static
 
       - name: Get commit hash
         id: get-commit
-        working-directory: ${{ inputs.solver || github.event.repository.name }}
+        working-directory: ${{ needs.check-build-queue.outputs.resolved_solver }}
         run: |
           COMMIT_HASH=$(git rev-parse HEAD)
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
-          echo "${{ inputs.solver || github.event.repository.name }} commit hash: $COMMIT_HASH"
+          echo "${{ needs.check-build-queue.outputs.resolved_solver }} commit hash: $COMMIT_HASH"
 
       - name: Measure binary size
-        working-directory: ${{ inputs.solver || github.event.repository.name }}
+        working-directory: ${{ needs.check-build-queue.outputs.resolved_solver }}
         run: |
           BIN_PATH="${{ steps.resolve-binary-path.outputs.binary_path }}"
           if [ -f "$BIN_PATH" ]; then
@@ -269,7 +276,7 @@ jobs:
 
       - name: Collect build artifacts (headers, binary, compile_commands)
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
           # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
           BINARY_RELPATH=$(echo "${{ steps.resolve-binary-path.outputs.binary_path }}" | sed 's#^build/##')
@@ -278,9 +285,9 @@ jobs:
       - name: Compress collected artifacts
         run: |
           cd .artifacts
-          tar -czf ../${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz .
+          tar -czf ../${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz .
           cd ..
-          COMPRESSED_SIZE=$(du -h ${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz | cut -f1)
+          COMPRESSED_SIZE=$(du -h ${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz | cut -f1)
           echo "Compressed size: $COMPRESSED_SIZE"
 
       - name: Configure storage backend
@@ -292,7 +299,7 @@ jobs:
       - name: Check if commit is still in build queue
         id: check-queue
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
@@ -312,14 +319,14 @@ jobs:
         id: upload-key
         run: |
           NAMESPACE="${{ github.repository }}"
-          echo "key=$NAMESPACE/solvers/${{ inputs.solver || github.event.repository.name }}/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "key=$NAMESPACE/solvers/${{ needs.check-build-queue.outputs.resolved_solver }}/builds/v2/production/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload production binary to S3
         if: steps.check-queue.outputs.should_upload == 'true'
         uses: ./.github/actions/s3-put-object
         with:
           key: ${{ steps.upload-key.outputs.key }}
-          file: ${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz
+          file: ${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz
 
       - name: Discard build (not in queue)
         if: steps.check-queue.outputs.should_upload == 'false'
@@ -349,23 +356,23 @@ jobs:
 
       - name: Clean any previous build
         run: |
-          if [ -d "${{ inputs.solver || github.event.repository.name }}/build" ]; then
-            rm -rf ${{ inputs.solver || github.event.repository.name }}/build
+          if [ -d "${{ needs.check-build-queue.outputs.resolved_solver }}/build" ]; then
+            rm -rf ${{ needs.check-build-queue.outputs.resolved_solver }}/build
             echo "Cleaned previous build directory"
           fi
 
       - name: Clean stale checkout
-        run: rm -rf "${{ inputs.solver || github.event.repository.name }}"
+        run: rm -rf "${{ needs.check-build-queue.outputs.resolved_solver }}"
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ needs.check-build-queue.outputs.resolved_solver }}
           repo_url: ${{ needs.check-build-queue.outputs.resolved_repo_url }}
       - name: Resolve binary_path from manifest.json if not provided
         id: resolve-binary-path
         run: |
           BINARY_PATH="${{ inputs.binary_path }}"
           if [ -z "$BINARY_PATH" ]; then
-            SOLVER="${{ inputs.solver || github.event.repository.name }}"
+            SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
             BINARY_PATH=$(jq -r '.fuzzer.target_binary_path // empty' "$SOLVER/.cast/manifest.json" | sed 's#^\./##')
             if [ -z "$BINARY_PATH" ]; then
               echo "::error::binary_path not provided and no fuzzer.target_binary_path found in .cast/manifest.json"
@@ -376,31 +383,31 @@ jobs:
           echo "binary_path=$BINARY_PATH" >> "$GITHUB_OUTPUT"
       - name: Checkout commit
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "🔨 Building commit: $COMMIT_HASH"
           cd "$SOLVER"
           git checkout "$COMMIT_HASH"
           echo "Checked out commit: $(git rev-parse HEAD)"
 
-      - name: Build ${{ inputs.solver || github.event.repository.name }} static binary with coverage
+      - name: Build ${{ needs.check-build-queue.outputs.resolved_solver }} static binary with coverage
         run: |
           # Use clang with GCC toolchain to generate clang-compatible compile_commands.json
           # while still producing GCC-format coverage data (needed for fastcov)
           export CXX="clang++ --gcc-toolchain=/usr"
           export CC="clang --gcc-toolchain=/usr"
-          ${{ inputs.build_script || format('{0}/.cast/build.sh', inputs.solver || github.event.repository.name) }} --static --coverage
+          ${{ inputs.build_script || format('{0}/.cast/build.sh', needs.check-build-queue.outputs.resolved_solver) }} --static --coverage
 
       - name: Get commit hash
         id: get-commit
-        working-directory: ${{ inputs.solver || github.event.repository.name }}
+        working-directory: ${{ needs.check-build-queue.outputs.resolved_solver }}
         run: |
           COMMIT_HASH=$(git rev-parse HEAD)
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
-          echo "${{ inputs.solver || github.event.repository.name }} commit hash: $COMMIT_HASH"
+          echo "${{ needs.check-build-queue.outputs.resolved_solver }} commit hash: $COMMIT_HASH"
 
       - name: Measure binary size
-        working-directory: ${{ inputs.solver || github.event.repository.name }}
+        working-directory: ${{ needs.check-build-queue.outputs.resolved_solver }}
         run: |
           BIN_PATH="${{ steps.resolve-binary-path.outputs.binary_path }}"
           if [ -f "$BIN_PATH" ]; then
@@ -416,7 +423,7 @@ jobs:
 
       - name: Collect build artifacts (headers, binary, compile_commands)
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           # binary_path is relative to $SOLVER/ (e.g. "build/bin/cvc5"); strip
           # the leading "build/" to get the build-dir-relative path collect_build_artifacts.sh needs.
           BINARY_RELPATH=$(echo "${{ steps.resolve-binary-path.outputs.binary_path }}" | sed 's#^build/##')
@@ -425,9 +432,9 @@ jobs:
       - name: Compress collected artifacts
         run: |
           cd .artifacts
-          tar -czf ../${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz .
+          tar -czf ../${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz .
           cd ..
-          COMPRESSED_SIZE=$(du -h ${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz | cut -f1)
+          COMPRESSED_SIZE=$(du -h ${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz | cut -f1)
           echo "Compressed size: $COMPRESSED_SIZE"
 
       - name: Configure storage backend
@@ -439,7 +446,7 @@ jobs:
       - name: Check if commit is still in build queue (coverage)
         id: check-queue-coverage
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-build-queue.outputs.resolved_solver }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
@@ -456,14 +463,14 @@ jobs:
         id: upload-key-coverage
         run: |
           NAMESPACE="${{ github.repository }}"
-          echo "key=$NAMESPACE/solvers/${{ inputs.solver || github.event.repository.name }}/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "key=$NAMESPACE/solvers/${{ needs.check-build-queue.outputs.resolved_solver }}/builds/v2/coverage/${{ steps.get-commit.outputs.commit_hash }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload coverage binary to S3
         if: steps.check-queue-coverage.outputs.should_upload == 'true'
         uses: ./.github/actions/s3-put-object
         with:
           key: ${{ steps.upload-key-coverage.outputs.key }}
-          file: ${{ inputs.solver || github.event.repository.name }}/build/artifacts.tar.gz
+          file: ${{ needs.check-build-queue.outputs.resolved_solver }}/build/artifacts.tar.gz
 
       - name: Discard coverage build (not in queue)
         if: steps.check-queue-coverage.outputs.should_upload == 'false'
@@ -505,7 +512,7 @@ jobs:
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
-          python src/scheduling/s3_state.py ${{ inputs.solver || github.event.repository.name }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
+          python src/scheduling/s3_state.py ${{ needs.check-build-queue.outputs.resolved_solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
           echo "✅ Removed $COMMIT_HASH from build queue (both binaries uploaded)"
 
   remove-from-queue-on-failure:
@@ -544,7 +551,7 @@ jobs:
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
           COMMIT_HASH="${{ needs.check-build-queue.outputs.sha }}"
           echo "❌ Build failed for commit $COMMIT_HASH, removing from queue to prevent infinite retries"
-          python src/scheduling/s3_state.py ${{ inputs.solver || github.event.repository.name }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
+          python src/scheduling/s3_state.py ${{ needs.check-build-queue.outputs.resolved_solver }} "${NAMESPACE_ARGS[@]}" build-queue remove "$COMMIT_HASH"
           echo "✅ Removed failed commit $COMMIT_HASH from build queue"
 
   skip-build:

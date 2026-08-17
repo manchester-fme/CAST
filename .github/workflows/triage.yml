@@ -25,7 +25,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3'); leave empty to default to this repo's own name (github.event.repository.name)"
+        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3'); leave empty to derive it from the top-level .solver field in .cast/manifest.json"
         type: string
         required: false
         default: ''
@@ -34,7 +34,7 @@ on:
         type: string
         required: true
       solver_dir:
-        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); e.g. '<solver>/.cast' for solvers whose own fork carries the manifest (see example/.github/workflows/cast.yml)"
+        description: "Directory containing manifest.json for this solver. Defaults to <solver>/.cast (the calling fork's own profile)"
         type: string
         required: false
         default: ""
@@ -61,7 +61,7 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: "Solver name (namespaces the S3/R2 lookups); leave empty to default to this repo's own name (github.event.repository.name)"
+        description: "Solver name (namespaces the S3/R2 lookups); leave empty to derive it from the top-level .solver field in .cast/manifest.json"
         type: string
         default: ''
       repo_url:
@@ -69,7 +69,7 @@ on:
         type: string
         default: ""
       solver_dir:
-        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver>; e.g. '<solver>/.cast' for solvers whose own fork carries the manifest"
+        description: "Directory containing manifest.json for this solver. Defaults to <solver>/.cast (the calling fork's own profile)"
         type: string
         default: ""
       archive:
@@ -113,12 +113,18 @@ jobs:
       - name: Install creduce
         run: sudo apt-get update && sudo apt-get install -y creduce
 
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
+
       # Shallow clone -- only needs to reach manifest.json, not a buildable
       # source tree (mirrors commit-fuzzer.yml's "Clone oracle solver repo
       # early if oracle_solver_dir needs it" step).
       - name: Clone target solver repo for its manifest.json
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           if [ ! -d "$SOLVER" ]; then
             git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
           fi
@@ -132,7 +138,7 @@ jobs:
       - name: Install oracle solver (same manifest-declared fallback commit-fuzzer.yml uses)
         id: install-oracle
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -179,7 +185,7 @@ jobs:
       - name: Compute target_cmd/oracle_cmd from manifest.json's solver_cli
         id: solver-cmds
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -217,8 +223,8 @@ jobs:
       - name: Resolve archive/commit_hash (auto-discover if not given)
         id: resolve
         env:
-          SOLVER: ${{ inputs.solver || github.event.repository.name }}
-          NAMESPACE: ${{ steps.solver-cmds.outputs.cast_org }}/${{ inputs.solver || github.event.repository.name }}
+          SOLVER: ${{ steps.resolve-solver.outputs.solver }}
+          NAMESPACE: ${{ steps.solver-cmds.outputs.cast_org }}/${{ steps.resolve-solver.outputs.solver }}
           GIVEN_ARCHIVE: ${{ inputs.archive }}
           GIVEN_COMMIT: ${{ inputs.commit_hash }}
         run: |
@@ -310,10 +316,10 @@ jobs:
               f.write(f"commit_hash={commit_hash}\n")
           PYEOF
 
-      - name: Fetch the ${{ inputs.solver || github.event.repository.name }} build CAST produced for this commit
+      - name: Fetch the ${{ steps.resolve-solver.outputs.solver }} build CAST produced for this commit
         if: steps.resolve.outputs.archive_found == 'true'
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ steps.resolve.outputs.commit_hash }}.tar.gz"
           echo "Fetching $KEY"
@@ -342,7 +348,7 @@ jobs:
       - name: Print solver versions
         if: steps.resolve.outputs.archive_found == 'true'
         run: |
-          "${{ inputs.solver || github.event.repository.name }}" --version
+          "${{ steps.resolve-solver.outputs.solver }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version
 
       # GH_TOKEN authenticates `gh issue create` when --post is set (see

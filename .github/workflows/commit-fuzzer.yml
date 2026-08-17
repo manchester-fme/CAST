@@ -51,7 +51,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -74,7 +74,7 @@ on:
         type: number
         default: 5  # GitHub Actions input defaults must be static literals - keep in sync with src/util/defaults.json's stop_buffer_minutes, the actual source of truth the shell fallback below reads
       solver_dir:
-        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed.'
         required: false
         type: string
         default: ''
@@ -99,7 +99,7 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -122,7 +122,7 @@ on:
         type: number
         default: 5  # GitHub Actions input defaults must be static literals - keep in sync with src/util/defaults.json's stop_buffer_minutes, the actual source of truth the shell fallback below reads
       solver_dir:
-        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
+        description: 'Directory containing manifest.json and build.sh for this solver. Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed.'
         required: false
         type: string
         default: ''
@@ -157,6 +157,7 @@ jobs:
       latest_build: ${{ steps.set-outputs.outputs.latest_build }}
       is_manual_run: ${{ steps.set-outputs.outputs.is_manual_run }}
       binary_available: ${{ steps.set-outputs.outputs.binary_available }}
+      resolved_solver: ${{ steps.resolve-solver.outputs.solver }}
 
     steps:
       - name: Checkout
@@ -178,11 +179,17 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
+
       - name: Get commit to fuzz and latest build
         id: set-outputs
         run: |
           set +e  # Don't exit on error - handle errors gracefully
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           NAMESPACE="${{ github.repository }}"
           # If workflow_dispatch with commit hash provided, use that commit
           # Otherwise (scheduled OR workflow_dispatch without commit), use fuzzer to select
@@ -266,6 +273,7 @@ jobs:
       total_tests: ${{ steps.extract-tests.outputs.total_tests }}
       total_jobs: ${{ steps.extract-tests.outputs.total_jobs }}
       commit_hash: ${{ steps.get-commit.outputs.commit_hash }}
+      resolved_solver: ${{ needs.check-latest-build.outputs.resolved_solver }}
       resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
     permissions:
       actions: read
@@ -320,12 +328,12 @@ jobs:
 
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ needs.check-latest-build.outputs.resolved_solver }}
           repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
       - name: Clone manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -341,7 +349,7 @@ jobs:
 
       - name: Checkout commit to fuzz
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           COMMIT_TO_FUZZ="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"
           echo "🔨 Checking out commit to fuzz: $COMMIT_TO_FUZZ"
@@ -371,9 +379,9 @@ jobs:
       - name: Get solver commit hash
         id: get-commit
         run: |
-          COMMIT_HASH=$(cd "${{ inputs.solver || github.event.repository.name }}" && git rev-parse HEAD)
+          COMMIT_HASH=$(cd "${{ needs.check-latest-build.outputs.resolved_solver }}" && git rev-parse HEAD)
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
-          echo "${{ inputs.solver || github.event.repository.name }} commit hash: $COMMIT_HASH"
+          echo "${{ needs.check-latest-build.outputs.resolved_solver }} commit hash: $COMMIT_HASH"
 
       - name: Configure storage backend
         if: inputs.no_coverage != true
@@ -387,7 +395,7 @@ jobs:
         if: inputs.no_coverage != true
         continue-on-error: true
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           NAMESPACE="${{ github.repository }}"
           mkdir -p artifacts
           LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
@@ -416,7 +424,7 @@ jobs:
         id: extract-artifacts
         if: inputs.no_coverage != true && steps.download-production-binary.outputs.artifacts_available == 'true'
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           if [ -f "artifacts/artifacts.tar.gz" ]; then
@@ -436,7 +444,7 @@ jobs:
       - name: Build solver static binary (fallback for headers and compile_commands.json)
         if: inputs.no_coverage != true && steps.extract-artifacts.outputs.artifacts_available != 'true'
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           if [ ! -f "$SOLVER/build/compile_commands.json" ]; then
@@ -457,7 +465,7 @@ jobs:
         id: download-coverage
         if: inputs.no_coverage != true
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           NAMESPACE="${{ github.repository }}"
           PREFIX="$NAMESPACE/solvers/$SOLVER/coverage-mappings"
           BROKER="${AWS_STORAGE_PROVIDER:-}"
@@ -534,7 +542,7 @@ jobs:
         env:
           SKIP_COVERAGE_ENFORCEMENT: "true"
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.check-latest-build.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$GITHUB_WORKSPACE/$SOLVER_DIR/manifest.json"
@@ -639,12 +647,12 @@ jobs:
       # exist before any of the manifest reads further down, unconditionally.
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ needs.commit-fuzzer.outputs.resolved_solver }}
           repo_url: ${{ needs.commit-fuzzer.outputs.resolved_repo_url }}
 
       - name: Install fuzzing dependencies
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -662,7 +670,7 @@ jobs:
 
       - name: Clone manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -678,7 +686,7 @@ jobs:
 
       - name: Clone oracle solver repo early if oracle_solver_dir needs it
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$SOLVER_DIR/manifest.json")
@@ -699,7 +707,7 @@ jobs:
 
       - name: Clone oracle solver's own fork for its solver_cli
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$SOLVER_DIR/manifest.json")
@@ -731,7 +739,7 @@ jobs:
         id: fetch-oracle
         continue-on-error: true
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -815,7 +823,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -854,7 +862,7 @@ jobs:
         id: fetch-sut-binary
         continue-on-error: true
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           NAMESPACE="${{ github.repository }}"
           LATEST_BUILD="${{ needs.check-latest-build.outputs.latest_build }}"
           S3_KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${LATEST_BUILD}.tar.gz"
@@ -898,7 +906,7 @@ jobs:
 
       - name: Clone/build SUT if needed
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -960,7 +968,7 @@ jobs:
 
       - name: Clean up git repositories to save space
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -972,7 +980,7 @@ jobs:
 
       - name: Verify solver binaries
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           ORACLE_SOLVER="${{ steps.fetch-oracle.outputs.oracle_solver }}"
@@ -987,9 +995,9 @@ jobs:
           fi
 
       - name: Run Simple Fuzzer on assigned tests
-        working-directory: ${{ inputs.solver || github.event.repository.name }}
+        working-directory: ${{ needs.commit-fuzzer.outputs.resolved_solver }}
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.commit-fuzzer.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="../$SOLVER_DIR/manifest.json"
@@ -1058,7 +1066,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bugs-job-${{ matrix.job_id }}
-          path: ${{ inputs.solver || github.event.repository.name }}/bugs
+          path: ${{ needs.commit-fuzzer.outputs.resolved_solver }}/bugs
           retention-days: 1
           if-no-files-found: ignore
 
@@ -1142,7 +1150,7 @@ jobs:
         if: steps.combine-bugs.outputs.bugs_found == 'true'
         uses: ./.github/actions/s3-put-object
         with:
-          key: ${{ github.repository }}/solvers/${{ inputs.solver || github.event.repository.name }}/bugs/${{ steps.create-archive.outputs.archive_name }}
+          key: ${{ github.repository }}/solvers/${{ needs.commit-fuzzer.outputs.resolved_solver }}/bugs/${{ steps.create-archive.outputs.archive_name }}
           file: ${{ steps.create-archive.outputs.archive_name }}
 
       - name: Report upload summary
@@ -1188,4 +1196,4 @@ jobs:
         run: |
           COMMIT_HASH="${{ needs.check-latest-build.outputs.commit_to_fuzz }}"
           NAMESPACE="${{ github.repository }}"
-          python src/scheduling/fuzzer.py "${{ inputs.solver || github.event.repository.name }}" --namespace "$NAMESPACE" increment $COMMIT_HASH
+          python src/scheduling/fuzzer.py "${{ needs.commit-fuzzer.outputs.resolved_solver }}" --namespace "$NAMESPACE" increment $COMMIT_HASH

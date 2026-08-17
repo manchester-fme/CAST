@@ -43,7 +43,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to default to this repo''s own name (github.event.repository.name), the convention every fork already follows'
+        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -59,7 +59,7 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to default to this repo''s own name (github.event.repository.name), the convention every fork already follows'
+        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -99,6 +99,12 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
 
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
+
       - name: Resolve repo_url from manifest.json if not provided
         id: resolve-repo-url
         uses: ./.github/actions/resolve-repo-url
@@ -109,7 +115,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           REPO_URL="${{ steps.resolve-repo-url.outputs.repo_url }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")

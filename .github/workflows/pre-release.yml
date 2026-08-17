@@ -27,7 +27,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3'); leave empty to default to this repo's own name (github.event.repository.name)"
+        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3'); leave empty to derive it from the top-level .solver field in .cast/manifest.json"
         type: string
         required: false
         default: ''
@@ -36,7 +36,7 @@ on:
         type: string
         required: true
       solver_dir:
-        description: "Directory containing manifest.json for this solver. Defaults to src/solvers/<solver>; e.g. '<solver>/.cast' for solvers whose own fork carries the manifest"
+        description: "Directory containing manifest.json for this solver. Defaults to <solver>/.cast (the calling fork's own profile)"
         type: string
         required: false
         default: ""
@@ -79,11 +79,17 @@ jobs:
       - name: Install python deps
         run: pip install boto3 requests
 
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
+
       # Shallow clone - only needs to reach manifest.json, not a buildable
       # source tree (mirrors triage.yml's identically-named step).
       - name: Clone target solver repo for its manifest.json
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           if [ ! -d "$SOLVER" ]; then
             git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
           fi
@@ -93,7 +99,7 @@ jobs:
       - name: Install oracle solver (same manifest-declared fallback fuzzing/triage use)
         id: install-oracle
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -133,7 +139,7 @@ jobs:
       - name: Compute target_cmd/oracle_cmd from manifest.json's solver_cli
         id: solver-cmds
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -157,7 +163,7 @@ jobs:
 
       - name: Fetch the pinned bug archive
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
             src/util/r2_broker_cli.sh get "$NAMESPACE" "${{ inputs.archive }}" bugs.tar.gz
@@ -167,9 +173,9 @@ jobs:
           mkdir -p bugs_extracted
           tar -xzf bugs.tar.gz -C bugs_extracted
 
-      - name: Fetch the pinned ${{ inputs.solver || github.event.repository.name }} build
+      - name: Fetch the pinned ${{ steps.resolve-solver.outputs.solver }} build
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ inputs.commit_hash }}.tar.gz"
           echo "Fetching $KEY"
@@ -190,7 +196,7 @@ jobs:
 
       - name: Print solver versions
         run: |
-          "${{ inputs.solver || github.event.repository.name }}" --version
+          "${{ steps.resolve-solver.outputs.solver }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version || true
 
       # GH_TOKEN authenticates `gh issue create` inside report.py's --post

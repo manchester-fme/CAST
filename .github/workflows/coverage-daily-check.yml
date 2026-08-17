@@ -7,9 +7,9 @@ name: Coverage Daily Check
 # header for the full rationale) - all solver-specific facts (extra repos to
 # clone, setup command, how tests are listed) come from the calling fork's
 # own .cast/manifest.json, not from branching in this file.
-# solver/repo_url/solver_dir all default from that same manifest.json (and
-# github.event.repository.name for solver) when left empty - it's passed
-# straight through to the coverage-mapper.yml call below.
+# solver/repo_url/solver_dir all default from that same manifest.json when
+# left empty - it's passed straight through to the coverage-mapper.yml
+# call below.
 #
 # Runnable standalone:
 #   - From the GitHub UI/API: Actions -> Coverage Daily Check -> Run workflow
@@ -19,7 +19,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -29,14 +29,14 @@ on:
         type: string
         default: ''
       solver_dir:
-        description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json for this solver. Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed'
         required: false
         type: string
         default: ''
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -46,7 +46,7 @@ on:
         type: string
         default: ''
       solver_dir:
-        description: 'Directory containing manifest.json for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json for this solver. Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed'
         required: false
         type: string
         default: ''
@@ -61,6 +61,7 @@ jobs:
       reason: ${{ steps.check-state.outputs.reason }}
       test_count: ${{ steps.count-tests.outputs.test_count }}
       commit_hash: ${{ steps.count-tests.outputs.commit_hash }}
+      resolved_solver: ${{ steps.resolve-solver.outputs.solver }}
       resolved_repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
     steps:
@@ -69,6 +70,11 @@ jobs:
         with:
           repository: manchester-fme/CAST
           ref: main
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
       - name: Resolve repo_url from manifest.json if not provided
         id: resolve-repo-url
         uses: ./.github/actions/resolve-repo-url
@@ -77,12 +83,12 @@ jobs:
           manifest_field: coverage
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ steps.resolve-solver.outputs.solver }}
           repo_url: ${{ steps.resolve-repo-url.outputs.repo_url }}
 
       - name: Fetch latest and clone manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -99,7 +105,7 @@ jobs:
 
       - name: Run manifest-declared pre-discovery setup
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -119,7 +125,7 @@ jobs:
       - name: Count tests
         id: count-tests
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
 
@@ -146,7 +152,7 @@ jobs:
         id: check-state
         run: |
           NAMESPACE="${{ github.repository }}"
-          python3 src/coverage/coverage_state.py ${{ inputs.solver || github.event.repository.name }} --namespace "$NAMESPACE" check \
+          python3 src/coverage/coverage_state.py ${{ steps.resolve-solver.outputs.solver }} --namespace "$NAMESPACE" check \
             --test-count ${{ steps.count-tests.outputs.test_count }} \
             --output decision.json
 
@@ -167,7 +173,7 @@ jobs:
     if: needs.check-rebuild-needed.outputs.should_rebuild == 'true'
     uses: ./.github/workflows/coverage-mapper.yml
     with:
-      solver: ${{ inputs.solver || github.event.repository.name }}
+      solver: ${{ needs.check-rebuild-needed.outputs.resolved_solver }}
       repo_url: ${{ needs.check-rebuild-needed.outputs.resolved_repo_url }}
       commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
       test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}

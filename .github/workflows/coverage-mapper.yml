@@ -36,7 +36,7 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -53,14 +53,14 @@ on:
         required: false
         type: number
       solver_dir:
-        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed'
         required: false
         type: string
         default: ''
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        description: 'Solver name, or leave empty to derive it from the top-level .solver field in .cast/manifest.json'
         required: false
         type: string
         default: ''
@@ -73,7 +73,7 @@ on:
         required: false
         type: string
       solver_dir:
-        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself'
+        description: 'Directory containing manifest.json/build.sh for this solver (no coverage scripts - the engine is CAST-owned). Defaults to <solver>/.cast (the calling fork''s own profile); set to a different path inside your own solver checkout if needed'
         required: false
         type: string
         default: ''
@@ -85,6 +85,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       total_tests: ${{ steps.generate-matrix.outputs.total_tests }}
       total_jobs: ${{ steps.generate-matrix.outputs.total_jobs }}
+      resolved_solver: ${{ steps.resolve-solver.outputs.solver }}
 
     steps:
       - name: Checkout
@@ -92,9 +93,14 @@ jobs:
         with:
           repository: manchester-fme/CAST
           ref: main
+      - name: Resolve solver from manifest.json if not provided
+        id: resolve-solver
+        uses: ./.github/actions/resolve-solver
+        with:
+          solver: ${{ inputs.solver }}
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -130,7 +136,7 @@ jobs:
 
       - name: Run manifest-declared pre-discovery setup
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -151,7 +157,7 @@ jobs:
       - name: Generate dynamic matrix
         id: generate-matrix
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
 
@@ -188,7 +194,7 @@ jobs:
           ref: main
       - name: Checkout solver repository and manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.discover-tests.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -224,7 +230,7 @@ jobs:
 
       - name: Install manifest-declared oracle
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.discover-tests.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
@@ -254,14 +260,14 @@ jobs:
 
       - name: Build solver with coverage
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.discover-tests.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           "$SOLVER_DIR/build.sh" --coverage
 
       - name: Run coverage analysis (tests ${{ matrix.start_index }}-${{ matrix.end_index }})
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.discover-tests.outputs.resolved_solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           "$GITHUB_WORKSPACE/src/util/measure_time.sh" "$GITHUB_WORKSPACE/src/coverage/run_coverage_builder.sh" "$SOLVER" "$SOLVER_DIR" ${{ matrix.start_index }} ${{ matrix.end_index }}
@@ -270,7 +276,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-mapping-${{ matrix.job_name }}
-          path: ${{ inputs.solver || github.event.repository.name }}/build/coverage_mapping_${{ matrix.start_index }}_${{ matrix.end_index }}.json
+          path: ${{ needs.discover-tests.outputs.resolved_solver }}/build/coverage_mapping_${{ matrix.start_index }}_${{ matrix.end_index }}.json
           retention-days: 1
 
   # Join all coverage mappings and create final artifact
@@ -291,7 +297,7 @@ jobs:
       - name: Get solver commit hash
         id: get-commit
         run: |
-          SOLVER="${{ inputs.solver || github.event.repository.name }}"
+          SOLVER="${{ needs.discover-tests.outputs.resolved_solver }}"
           if [ -n "${{ inputs.commit_hash }}" ]; then
             COMMIT_HASH="${{ inputs.commit_hash }}"
           else
@@ -311,7 +317,7 @@ jobs:
       # unconditionally.
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver || github.event.repository.name }}
+          solver: ${{ needs.discover-tests.outputs.resolved_solver }}
           repo_url: ${{ inputs.repo_url }}
 
       - name: Download all coverage mappings
@@ -336,7 +342,7 @@ jobs:
         run: |
           NAMESPACE="${{ github.repository }}"
           COMMIT_HASH="${{ steps.get-commit.outputs.commit_hash }}"
-          S3_KEY="$NAMESPACE/solvers/${{ inputs.solver || github.event.repository.name }}/coverage-mappings/coverage_mapping-${COMMIT_HASH}.json.gz"
+          S3_KEY="$NAMESPACE/solvers/${{ needs.discover-tests.outputs.resolved_solver }}/coverage-mappings/coverage_mapping-${COMMIT_HASH}.json.gz"
 
           if [ ! -f "coverage_mapping.json.gz" ]; then
             echo "❌ Error: coverage_mapping.json.gz not found"
@@ -383,7 +389,7 @@ jobs:
       - name: Update coverage state
         run: |
           NAMESPACE="${{ github.repository }}"
-          python3 src/coverage/coverage_state.py ${{ inputs.solver || github.event.repository.name }} --namespace "$NAMESPACE" update \
+          python3 src/coverage/coverage_state.py ${{ needs.discover-tests.outputs.resolved_solver }} --namespace "$NAMESPACE" update \
             --test-count ${{ needs.discover-tests.outputs.total_tests }} \
             --commit-hash ${{ needs.join-mappings.outputs.commit_hash }} \
             --updated-by "${{ github.workflow }}"
