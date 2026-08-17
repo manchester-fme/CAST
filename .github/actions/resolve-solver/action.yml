@@ -1,0 +1,39 @@
+name: Resolve solver from manifest.json if not provided
+description: >
+  Passes a given solver name through unchanged. When empty, shallow-clones
+  the calling repo itself (github.server_url/github.repository -- always
+  the fork this job was called from, never CAST, never upstream -- see
+  clone-solver-source/action.yml's identical reasoning) and reads the
+  top-level .solver field from its own .cast/manifest.json. Safe to call
+  unconditionally: a non-empty solver short-circuits before any clone.
+
+inputs:
+  solver:
+    description: 'Solver name, or empty to derive it from .solver in .cast/manifest.json'
+    required: false
+    default: ''
+
+outputs:
+  solver:
+    description: 'The given solver, or the one derived from manifest.json'
+    value: ${{ steps.resolve.outputs.solver }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      run: |
+        SOLVER="${{ inputs.solver }}"
+        if [ -z "$SOLVER" ]; then
+          rm -rf .solver-resolve
+          git clone --depth 1 "${{ github.server_url }}/${{ github.repository }}" .solver-resolve
+          SOLVER=$(jq -r '.solver // empty' .solver-resolve/.cast/manifest.json)
+          rm -rf .solver-resolve
+          if [ -z "$SOLVER" ]; then
+            echo "::error::solver not provided and no top-level .solver found in .cast/manifest.json"
+            exit 1
+          fi
+          echo "Derived solver from .cast/manifest.json: $SOLVER"
+        fi
+        echo "solver=$SOLVER" >> "$GITHUB_OUTPUT"
