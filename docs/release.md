@@ -92,6 +92,78 @@ following must also hold:
   dashboard) than the full restructure this implies - needs rescoping, not
   just relabeling, before it counts toward this.
 
+## Roadmap to v1.0.0
+
+Every 0.X release between now and v1.0.0 exists to close the gap on the
+three prerequisites above, without regressing anything already shipped.
+Concretely, every release should:
+
+- **Pass all four gates unchanged.** Nothing about moving faster toward
+  1.0 means skipping or weakening gates 1-3.
+- **Clear its version label before tagging.** Every issue labeled `vX.Y.0`
+  is closed or explicitly relabeled (to the next version, or `backlog`)
+  before that tag is cut, so the label always reflects what shipped, not
+  what was hoped for.
+- **Not regress the unattended schedule.** v0.9.0 (below) is where the
+  7-consecutive-day stability clock formally starts, but every release
+  before it should still treat "did this break `manager`'s hourly tick,
+  the 6-hourly `cycle`, or `daily-check`" as an implicit gate - the whole
+  point of hardening the scheduler in v0.4.0 is wasted if something after
+  it reintroduces a regression that only gets caught once v0.9.0 starts
+  the clock for real.
+- **State its progress against the three prerequisites in the release
+  notes** - bug tally, stability-streak status, UI status - the way
+  v0.2.1's notes already did informally for bugs.
+
+Each release also has its own theme - the reason its issues are grouped
+together, not just "whatever was next in the backlog":
+
+### v0.3.0 - repo hygiene
+Minimize what CAST leaves behind in a client's solver repo, before
+onboarding more solvers depends on that footprint being trustworthy.
+- #74 Client repos should be stripped to minimum
+
+### v0.4.0 - harden the interfaces
+Close the gaps in CAST's own reliability and config surface that would
+otherwise undermine both the stability clock and the bug-finding
+credibility v0.5.0 starts measuring - fix drift-prone hardcoding, document
+what's actually supported, and stop triage/the manager from cutting
+corners before either becomes a metric that's being watched.
+- #76 Hardcoding: solver invocation flags duplicated in three places with
+  no sync check
+- #75 Accumulating backlog of manager actions when CAST cycle is running
+- #67 Harden duplicate-issue detection in triage reporting
+- #66 Improve the solver-facing config surface (manifest.json / fuzzing
+  controls)
+- #65 Improve README / setup documentation clarity
+- #71 Clarify and document the set of repos CAST is intended to work with
+
+### v0.5.0 - CAST UI/webpage
+Give CAST a real interface beyond GitHub Actions logs - `workflow_dispatch`
+inputs and Actions run logs replaced by a dedicated view of run status,
+filed bugs, and fuzzing coverage.
+- Rescope #70 from "status dashboard" to the actual UI restructure
+  v1.0.0 needs, then build against that scope
+
+### v0.6.0-v0.8.0 - iterate to close the gap
+Whatever's left before the stability clock starts in v0.9.0: continued UI
+iteration, #72 and #69 (both currently `backlog`) if they end up feeding
+the UI's observability needs, and triage continuing to accumulate
+confirmed bugs across solvers toward the 5-bugs/2-solvers bar.
+
+### v0.9.0 - stability
+Run the unattended production schedule (`manager`'s hourly tick, the
+6-hourly `cycle`, `daily-check`) clean across all solvers for 7
+consecutive days with zero required operator intervention. Any
+intervention needed during the window is a bug: fix it and restart the
+clock, don't just note it and move on - this release doesn't ship until
+the streak completes clean.
+
+### v1.0.0
+Cut once, at the same time: 5 real bugs across >=2 solvers, the v0.9.0
+stability streak completed clean, and the UI from v0.5.0-v0.8.0 shipped -
+not before.
+
 ## What each gate does *not* catch
 
 - Gate 1 (`pre-release.yml`) never builds from source, never fuzzes, never
