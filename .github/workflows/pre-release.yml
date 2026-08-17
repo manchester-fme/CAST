@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: manchester-fme/CAST
-          ref: v0.4.0  # TEMP for staging validation - revert to main before v0.4.0 merges (gate 1 always tests CAST's latest main in production)
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -91,7 +91,7 @@ jobs:
         run: |
           SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           if [ ! -d "$SOLVER" ]; then
-            git clone --depth 1 --branch v0.4.0 "${{ inputs.repo_url }}" "$SOLVER"  # TEMP for staging validation - revert to default-branch clone before v0.4.0 merges
+            git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
           fi
 
       # Verbatim copy of commit-fuzzer.yml's / triage.yml's "Install oracle
@@ -151,7 +151,7 @@ jobs:
           echo "cast_org=$CAST_ORG" >> "$GITHUB_OUTPUT"
 
           ORACLE_SOLVER="${{ steps.install-oracle.outputs.oracle_solver }}"
-          git clone --depth 1 --branch v0.4.0 "https://github.com/$CAST_ORG/$ORACLE_SOLVER" oracle-cli-manifest  # TEMP for staging validation - revert before v0.4.0 merges
+          git clone --depth 1 "https://github.com/$CAST_ORG/$ORACLE_SOLVER" oracle-cli-manifest
           ORACLE_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "oracle-cli-manifest/.cast/manifest.json")
           ORACLE_CMD="$ORACLE_SOLVER $ORACLE_EXTRA_ARGS"
           echo "oracle_cmd=${ORACLE_CMD% }" >> "$GITHUB_OUTPUT"
