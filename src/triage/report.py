@@ -108,6 +108,24 @@ def cast_version():
     return "unknown"
 
 
+def cast_commit_sha():
+    """Full commit SHA of this CAST checkout, to link the footer's
+    cast_version() label to the exact commit - git describe's output (e.g.
+    'v0.1.0-3-gabc1234') isn't itself a resolvable GitHub ref/URL path."""
+    try:
+        script_dir = str(Path(__file__).resolve().parent)
+        out = subprocess.run(
+            ["git", "-C", script_dir, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    return None
+
+
 DISPLAY_NAME = "bug.smt2"
 
 
@@ -140,7 +158,11 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash=None):
 
     lines = [f"commit: {commit}", "", "```bash"]
     lines += transcript
-    lines += ["```", "", "---", f"Found with [CAST {cast_version()}](https://github.com/manchester-fme/CAST)"]
+
+    version = cast_version()
+    sha = cast_commit_sha()
+    cast_url = f"https://github.com/manchester-fme/CAST/commit/{sha}" if sha else "https://github.com/manchester-fme/CAST"
+    lines += ["```", "", "---", f"Found with [CAST {version}]({cast_url})"]
 
     return title, "\n".join(lines) + "\n"
 
