@@ -61,8 +61,7 @@ on:
     inputs:
       solver:
         description: "Solver name (namespaces the S3/R2 lookups)"
-        type: choice
-        options: [z3, cvc5]
+        type: string
         default: z3
       repo_url:
         description: "Git URL to clone the target solver from, to read its manifest.json (fuzzer.oracle_solver / oracle_fetch_fallback)"
