@@ -15,22 +15,22 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Single source of truth for CAST's own defaults, also read by
+# commit-fuzzer.yml's shell fallback (MAX_JOBS/STOP_BUFFER) - see
+# src/util/defaults.json. A manifest.json's fuzzer.resources still wins
+# per-key over these at runtime (see __init__ below).
+_DEFAULTS = json.loads((Path(__file__).resolve().parent.parent / "util" / "defaults.json").read_text())
+
 
 class SimpleCommitFuzzer:
     EXIT_CODE_BUGS_FOUND = 10
     EXIT_CODE_UNSUPPORTED = 3
     EXIT_CODE_SUCCESS = 0
-    
-    RESOURCE_CONFIG = {
-        'cpu_warning': 85.0,
-        'cpu_critical': 95.0,
-        'memory_warning_available_gb': 2.0,  # Warning if less than 2GB available
-        'memory_critical_available_gb': 0.5,  # Critical if less than 500MB available (real low memory)
-        'check_interval': 2,  # Check every 2 seconds
-        'pause_duration': 10,
-        'max_process_memory_mb': 2048,  # Kill processes exceeding 2GB (normal operation) - allows normal solver usage but catches runaway processes
-        'max_process_memory_mb_warning': 1536,  # Stricter threshold (1.5GB) when system memory is low
-    }
+
+    # max_jobs is a GitHub Actions matrix fan-out size, not a resource-
+    # monitoring threshold (see commit-fuzzer.yml's RESOURCES_JSON step) -
+    # excluded here even though it lives in the same defaults.json block.
+    RESOURCE_CONFIG = {k: v for k, v in _DEFAULTS['resources'].items() if k != 'max_jobs'}
 
     def __init__(
         self,
@@ -42,7 +42,7 @@ class SimpleCommitFuzzer:
         modulo: int = 2,
         time_remaining: Optional[int] = None,
         job_start_time: Optional[float] = None,
-        stop_buffer_minutes: int = 5,
+        stop_buffer_minutes: int = _DEFAULTS['stop_buffer_minutes'],
         target_path: str = "",
         oracle_path: Optional[str] = None,
         target_extra_args: str = "",
@@ -862,8 +862,8 @@ def main():
     parser.add_argument(
         "--stop-buffer-minutes",
         type=int,
-        default=5,
-        help="Minutes before timeout to stop (default: 5, can be set higher for testing)",
+        default=_DEFAULTS['stop_buffer_minutes'],
+        help=f"Minutes before timeout to stop (default: {_DEFAULTS['stop_buffer_minutes']}, can be set higher for testing)",
     )
     parser.add_argument(
         "--iterations",

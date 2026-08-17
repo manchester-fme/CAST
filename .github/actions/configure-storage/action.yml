@@ -8,14 +8,17 @@ inputs:
     description: 'Optional: pass vars.AWS_STORAGE_PROVIDER from the caller to force "r2", "aws", or "r2-broker". Leave unset to auto-detect from whether AWS_ACCESS_KEY_ID is present in secrets.'
     required: false
   r2_broker_function_url:
-    description: 'r2-broker only: the broker Lambda Function URL. Not a secret - baked in by the calling reusable workflow.'
+    description: 'r2-broker only: the broker Lambda Function URL. Not a secret - defaulted here as the single source of truth (see src/infra/r2-broker/README.md); override only for a different broker deployment.'
     required: false
+    default: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'
   r2_broker_role_arn:
-    description: 'r2-broker only: IAM role ARN to assume via OIDC. Not a secret - baked in by the calling reusable workflow.'
+    description: 'r2-broker only: IAM role ARN to assume via OIDC. Not a secret - defaulted here as the single source of truth (see src/infra/r2-broker/README.md); override only for a different broker deployment.'
     required: false
+    default: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'
   r2_broker_region:
-    description: 'r2-broker only: AWS region the broker Lambda is deployed in. Not a secret - baked in by the calling reusable workflow. Must match the actual Lambda region or SigV4 signing fails with a 403.'
+    description: 'r2-broker only: AWS region the broker Lambda is deployed in. Not a secret - defaulted here as the single source of truth (see src/infra/r2-broker/README.md); override only for a different broker deployment. Must match the actual Lambda region or SigV4 signing fails with a 403.'
     required: false
+    default: 'eu-north-1'
 runs:
   using: composite
   steps:

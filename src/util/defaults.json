@@ -1,0 +1,14 @@
+{
+  "resources": {
+    "max_jobs": 9,
+    "cpu_warning": 85.0,
+    "cpu_critical": 95.0,
+    "memory_warning_available_gb": 2.0,
+    "memory_critical_available_gb": 0.5,
+    "check_interval": 2,
+    "pause_duration": 10,
+    "max_process_memory_mb": 2048,
+    "max_process_memory_mb_warning": 1536
+  },
+  "stop_buffer_minutes": 5
+}

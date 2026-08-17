@@ -70,7 +70,7 @@ on:
         description: 'Minutes before timeout to stop fuzzing'
         required: false
         type: number
-        default: 5
+        default: 5  # GitHub Actions input defaults must be static literals - keep in sync with src/util/defaults.json's stop_buffer_minutes, the actual source of truth the shell fallback below reads
       solver_dir:
         description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
         required: false
@@ -87,7 +87,7 @@ on:
         type: string
         default: ''
       max_jobs:
-        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to 9, when left empty.'
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to src/util/defaults.json''s resources.max_jobs, when left empty.'
         required: false
         type: number
       no_coverage:
@@ -116,7 +116,7 @@ on:
         description: 'Minutes before timeout to stop fuzzing'
         required: false
         type: number
-        default: 5
+        default: 5  # GitHub Actions input defaults must be static literals - keep in sync with src/util/defaults.json's stop_buffer_minutes, the actual source of truth the shell fallback below reads
       solver_dir:
         description: 'Directory containing manifest.json and build.sh for this solver. Defaults to src/solvers/<solver> (CAST-maintained solvers); set to a path inside your own solver checkout (e.g. <solver>/cast-profile) to bring a new solver without adding anything to CAST itself.'
         required: false
@@ -133,7 +133,7 @@ on:
         type: string
         default: ''
       max_jobs:
-        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to 9, when left empty.'
+        description: 'Maximum number of parallel fuzzer-jobs matrix entries (GitHub Actions job fan-out for this run, not simple_commit_fuzzer.py''s separate --workers CPU-core flag). Overrides manifest.json fuzzer.resources.max_jobs for this run; falls back to that, then to src/util/defaults.json''s resources.max_jobs, when left empty.'
         required: false
         type: number
       no_coverage:
@@ -173,9 +173,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Get commit to fuzz and latest build
         id: set-outputs
@@ -373,9 +370,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Download production binary from S3 (for headers and compile_commands.json)
         id: download-production-binary
@@ -447,9 +441,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Download coverage map from S3
         id: download-coverage
@@ -537,18 +528,20 @@ jobs:
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="$GITHUB_WORKSPACE/$SOLVER_DIR/manifest.json"
 
-          # Precedence: explicit workflow input > manifest-declared default > 9.
-          # An omitted `number`-typed workflow_call/workflow_dispatch input
-          # resolves to "0", not "" - callers that don't set max_jobs (the
-          # common case) would otherwise pin MAX_JOBS at 0 here and crash
-          # downstream, so treat 0 the same as unset (max_jobs=0 wouldn't be
-          # a meaningful value for a caller to request anyway).
+          # Precedence: explicit workflow input > manifest-declared default >
+          # src/util/defaults.json (CAST's own single source of truth, also
+          # read by simple_commit_fuzzer.py's RESOURCE_CONFIG). An omitted
+          # `number`-typed workflow_call/workflow_dispatch input resolves to
+          # "0", not "" - callers that don't set max_jobs (the common case)
+          # would otherwise pin MAX_JOBS at 0 here and crash downstream, so
+          # treat 0 the same as unset (max_jobs=0 wouldn't be a meaningful
+          # value for a caller to request anyway).
           MAX_JOBS="${{ inputs.max_jobs }}"
           if [ -z "$MAX_JOBS" ] || [ "$MAX_JOBS" = "0" ]; then
             MAX_JOBS=$(jq -r '.fuzzer.resources.max_jobs // empty' "$MANIFEST")
           fi
           if [ -z "$MAX_JOBS" ] || [ "$MAX_JOBS" = "0" ]; then
-            MAX_JOBS=9
+            MAX_JOBS=$(jq -r '.resources.max_jobs' "$GITHUB_WORKSPACE/src/util/defaults.json")
           fi
 
           # Jobs capped at MAX_JOBS to leave space for building and management.
@@ -724,9 +717,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Fetch oracle binary from S3
         id: fetch-oracle
@@ -995,7 +985,9 @@ jobs:
           if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
           MANIFEST="../$SOLVER_DIR/manifest.json"
           JOB_START=$(cat /tmp/job_start_${GITHUB_RUN_ID}_${{ matrix.job_id }}.txt)
-          STOP_BUFFER=${{ inputs.stop_buffer_minutes || 5 }}
+          STOP_BUFFER_DEFAULT=$(jq -r '.stop_buffer_minutes' "$GITHUB_WORKSPACE/src/util/defaults.json")
+          STOP_BUFFER=${{ inputs.stop_buffer_minutes }}
+          STOP_BUFFER="${STOP_BUFFER:-$STOP_BUFFER_DEFAULT}"
 
           TESTS_ROOT=$(jq -r '.fuzzer.tests_root' "$MANIFEST")
           TARGET_BINARY_PATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST")
@@ -1127,9 +1119,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Validate bugs archive exists
         if: steps.combine-bugs.outputs.bugs_found == 'true'
@@ -1183,9 +1172,6 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           storage_provider: ${{ vars.AWS_STORAGE_PROVIDER }}
-          r2_broker_function_url: 'https://e7gghvi6g5gw4gaszvu5wrou6i0annob.lambda-url.eu-north-1.on.aws/'  # see src/infra/r2-broker/README.md
-          r2_broker_role_arn: 'arn:aws:iam::615930035042:role/service-role/cast-r2-broker-role-ro68mail'  # see src/infra/r2-broker/README.md
-          r2_broker_region: 'eu-north-1'  # see src/infra/r2-broker/README.md
 
       - name: Increment fuzz count and manage schedule
         env:
