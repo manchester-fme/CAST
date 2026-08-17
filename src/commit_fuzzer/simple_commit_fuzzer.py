@@ -32,18 +32,6 @@ class SimpleCommitFuzzer:
         'max_process_memory_mb_warning': 1536,  # Stricter threshold (1.5GB) when system memory is low
     }
 
-    # Extra CLI args this fuzzer knows are worth passing to specific solvers,
-    # applied whenever that solver is invoked (whether it's the target under
-    # test or the differential oracle) - keyed by binary basename. This is a
-    # small, honest registry for the solvers CAST actually knows about today,
-    # not a generic per-solver config mechanism; an unlisted solver just gets
-    # invoked plainly (empty extra args), which is always safe.
-    KNOWN_SOLVER_EXTRA_ARGS = {
-        # 2GB/process (matches max_process_memory_mb above)
-        'z3': 'smt.threads=1 memory_max_size=2048 model_validate=true',
-        'cvc5': '--check-models --check-proofs --strings-exp -q',
-    }
-
     def __init__(
         self,
         tests: List[str],
@@ -57,6 +45,8 @@ class SimpleCommitFuzzer:
         stop_buffer_minutes: int = 5,
         target_path: str = "",
         oracle_path: Optional[str] = None,
+        target_extra_args: str = "",
+        oracle_extra_args: str = "",
         job_id: Optional[str] = None,
         resource_config: Optional[Dict] = None,
     ):
@@ -104,6 +94,8 @@ class SimpleCommitFuzzer:
         
         self.target_path = target_path
         self.oracle_path = oracle_path
+        self.target_extra_args = target_extra_args
+        self.oracle_extra_args = oracle_extra_args
 
         self._validate_solvers()
         self.bugs_folder.mkdir(parents=True, exist_ok=True)
@@ -146,12 +138,11 @@ class SimpleCommitFuzzer:
         raise ValueError(f"Solver binary not found (not a path, not on PATH): {value}")
 
     @classmethod
-    def _invocation_for(cls, value: str) -> str:
-        """Resolved binary/command plus any extra args this fuzzer knows to
-        pass to it (see KNOWN_SOLVER_EXTRA_ARGS), keyed by binary basename."""
+    def _invocation_for(cls, value: str, extra_args: str = '') -> str:
+        """Resolved binary/command plus any extra CLI flags to pass to it
+        (manifest.json's fuzzer.solver_cli, read by the caller and passed
+        in via --target-extra-args/--oracle-extra-args)."""
         resolved = cls._resolve_binary(value)
-        basename = Path(resolved.split()[0]).name
-        extra_args = cls.KNOWN_SOLVER_EXTRA_ARGS.get(basename, '')
         return f"{resolved} {extra_args}".strip()
 
     def _validate_solvers(self):
@@ -536,8 +527,8 @@ class SimpleCommitFuzzer:
         # (the trusted reference) should be invoked before the target.
         solvers = []
         if self.oracle_path:
-            solvers.append(self._invocation_for(self.oracle_path))
-        solvers.append(self._invocation_for(self.target_path))
+            solvers.append(self._invocation_for(self.oracle_path, self.oracle_extra_args))
+        solvers.append(self._invocation_for(self.target_path, self.target_extra_args))
         return ";".join(solvers)
 
     def _compute_time_remaining(self, job_start_time: float, stop_buffer_minutes: int) -> int:
@@ -899,6 +890,18 @@ def main():
         help="Path (or bare command name, resolved via PATH) to the differential-testing oracle",
     )
     parser.add_argument(
+        "--target-extra-args",
+        dest="target_extra_args",
+        default="",
+        help="Extra CLI flags to pass the target solver (from its own manifest.json's fuzzer.solver_cli)",
+    )
+    parser.add_argument(
+        "--oracle-extra-args",
+        dest="oracle_extra_args",
+        default="",
+        help="Extra CLI flags to pass the oracle solver (from the oracle's own manifest.json's fuzzer.solver_cli)",
+    )
+    parser.add_argument(
         "--resource-config-json",
         default="{}",
         help="JSON object of RESOURCE_CONFIG overrides (from manifest.json fuzzer.resources), "
@@ -957,6 +960,8 @@ def main():
             stop_buffer_minutes=args.stop_buffer_minutes,
             target_path=args.target_path,
             oracle_path=args.oracle_path,
+            target_extra_args=args.target_extra_args,
+            oracle_extra_args=args.oracle_extra_args,
             job_id=args.job_id,
             resource_config=resource_config,
         )

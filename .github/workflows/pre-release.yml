@@ -1,8 +1,9 @@
 name: Pre-Release
 
 # Reusable, workflow_call-only: proves triage's *detection* logic (fetch the
-# pinned build, fetch the pinned bug archive, run dedup.dedup() with the
-# given target_cmd/oracle_cmd) still confirms a specific, already-known
+# pinned build, fetch the pinned bug archive, run dedup.dedup() with
+# target_cmd/oracle_cmd computed from each solver's own manifest.json
+# solver_cli) still confirms a specific, already-known
 # real bug - fails the job if it doesn't - then files it via report.py
 # (--post), same as triage.yml would. Still skips reduce (the pinned
 # archive's trigger is already minimized from when it was first filed, so
@@ -44,14 +45,6 @@ on:
         required: true
       commit_hash:
         description: "Full commit hash of the pinned known-good production build"
-        type: string
-        required: true
-      target_cmd:
-        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 smt.threads=1 memory_max_size=2048 model_validate=true')"
-        type: string
-        required: true
-      oracle_cmd:
-        description: "Oracle solver command"
         type: string
         required: true
       expected_kind:
@@ -108,6 +101,7 @@ jobs:
             echo "::error::no fuzzer.oracle_solver declared in $MANIFEST"
             exit 1
           fi
+          echo "oracle_solver=$ORACLE_SOLVER" >> "$GITHUB_OUTPUT"
           FALLBACK_TYPE=$(jq -r '.fuzzer.oracle_fetch_fallback.type' "$MANIFEST")
           echo "Installing oracle $ORACLE_SOLVER via manifest-declared fallback ($FALLBACK_TYPE)"
           if [ "$FALLBACK_TYPE" = "pip" ]; then
@@ -133,6 +127,24 @@ jobs:
             echo "::error::Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
             exit 1
           fi
+
+      # Mirrors triage.yml's identically named/reasoned step - keep in sync.
+      - name: Compute target_cmd/oracle_cmd from manifest.json's solver_cli
+        id: solver-cmds
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
+          TARGET_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "$MANIFEST")
+          TARGET_CMD="$SOLVER $TARGET_EXTRA_ARGS"
+          echo "target_cmd=${TARGET_CMD% }" >> "$GITHUB_OUTPUT"
+
+          ORACLE_SOLVER="${{ steps.install-oracle.outputs.oracle_solver }}"
+          git clone --depth 1 "https://github.com/manchester-fme/$ORACLE_SOLVER" oracle-cli-manifest
+          ORACLE_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "oracle-cli-manifest/.cast/manifest.json")
+          ORACLE_CMD="$ORACLE_SOLVER $ORACLE_EXTRA_ARGS"
+          echo "oracle_cmd=${ORACLE_CMD% }" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/configure-storage
         with:
@@ -199,8 +211,8 @@ jobs:
           import dedup
           import report
 
-          target_cmd = "${{ inputs.target_cmd }}"
-          oracle_cmd = "${{ inputs.oracle_cmd }}"
+          target_cmd = "${{ steps.solver-cmds.outputs.target_cmd }}"
+          oracle_cmd = "${{ steps.solver-cmds.outputs.oracle_cmd }}"
           expected_kind = "${{ inputs.expected_kind }}"
           expected_msg = "${{ inputs.expected_msg }}"
 

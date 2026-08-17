@@ -80,8 +80,12 @@ Or `.github/workflows/triage.yml`, both `workflow_dispatch` (manual) and
 `example/.github/workflows/cast.yml`). `--post` files real issues, so
 `workflow_dispatch` defaults to a dry run.
 
-`solver`/`repo_url`/`target_cmd`/`oracle_cmd` are always required;
-`solver_dir`, `archive`, and `commit_hash` are optional. `solver_dir`
+`solver`/`repo_url` are always required; `solver_dir`, `archive`, and
+`commit_hash` are optional. `target_cmd`/`oracle_cmd` aren't inputs at all
+on the workflow - they're computed from each solver's own manifest.json
+`fuzzer.solver_cli` (see "Both solvers involved" below), the same value
+`--target-cmd`/`--oracle-cmd` take explicitly when running `triage.py`
+standalone. `solver_dir`
 defaults to `src/solvers/<solver>`; set it the same way you would for
 `build.yml`/`commit-fuzzer.yml` (e.g. `<solver>/.cast`) -- it's where
 `manifest.json` is read from. `archive`/`commit_hash` left empty

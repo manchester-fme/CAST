@@ -696,6 +696,29 @@ jobs:
             git clone --depth 1 "$ORACLE_REPO_URL" "$ORACLE_SOLVER"
           fi
 
+      - name: Clone oracle solver's own fork for its solver_cli
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$SOLVER_DIR/manifest.json")
+          ORACLE_SOLVER_DIR="${{ inputs.oracle_solver_dir }}"
+          # oracle_solver_dir (opt-in CAST-tracked oracle build) already
+          # points at a checkout carrying the oracle's own manifest.json -
+          # "Run Simple Fuzzer on assigned tests" below reads solver_cli
+          # from there directly in that case. Only the default case (no
+          # oracle_solver_dir, the manifest-declared stable release) needs
+          # its own clone here, purely to read fuzzer.solver_cli - this is
+          # never used to build or fetch the oracle binary itself, which
+          # always comes from the real production build/fallback below.
+          # manchester-fme/<solver> is that fork by convention for every
+          # solver CAST currently tracks (see triage.yml); the fork carries
+          # nothing but .cast/ and .github/ (see manchester-fme/CAST#74),
+          # so this shallow clone is trivially cheap.
+          if [ -n "$ORACLE_SOLVER" ] && [ -z "$ORACLE_SOLVER_DIR" ] && [ ! -d "oracle-cli-manifest" ]; then
+            git clone --depth 1 "https://github.com/manchester-fme/$ORACLE_SOLVER" oracle-cli-manifest
+          fi
+
       - name: Configure storage backend
         uses: ./.github/actions/configure-storage
         with:
@@ -976,6 +999,7 @@ jobs:
 
           TESTS_ROOT=$(jq -r '.fuzzer.tests_root' "$MANIFEST")
           TARGET_BINARY_PATH=$(jq -r '.fuzzer.target_binary_path' "$MANIFEST")
+          TARGET_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "$MANIFEST")
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
           MAX_WORKERS=$(jq -r '.fuzzer.resources.max_workers // empty' "$MANIFEST")
           # max_workers is handled above via --workers, and max_jobs is a
@@ -993,6 +1017,7 @@ jobs:
             --stop-buffer-minutes "$STOP_BUFFER"
             --iterations 250
             --target-path "$TARGET_BINARY_PATH"
+            --target-extra-args "$TARGET_EXTRA_ARGS"
             --resource-config-json "$RESOURCES_JSON"
           )
           if [ -n "$MAX_WORKERS" ]; then
@@ -1010,6 +1035,19 @@ jobs:
               ORACLE_VALUE="$ORACLE_SOLVER"
             fi
             ARGS+=(--oracle-path "$ORACLE_VALUE")
+
+            # solver_cli lives on the oracle's own manifest.json, not this
+            # solver's - oracle_solver_dir (opt-in CAST-tracked build) already
+            # points at a checkout carrying it; otherwise it's the shallow
+            # clone "Clone oracle solver's own fork for its solver_cli" made.
+            ORACLE_SOLVER_DIR_INPUT="${{ inputs.oracle_solver_dir }}"
+            if [ -n "$ORACLE_SOLVER_DIR_INPUT" ]; then
+              ORACLE_MANIFEST="../$ORACLE_SOLVER_DIR_INPUT/manifest.json"
+            else
+              ORACLE_MANIFEST="../oracle-cli-manifest/.cast/manifest.json"
+            fi
+            ORACLE_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "$ORACLE_MANIFEST" 2>/dev/null)
+            ARGS+=(--oracle-extra-args "$ORACLE_EXTRA_ARGS")
           fi
 
           "$GITHUB_WORKSPACE/src/commit_fuzzer/simple_commit_fuzzer.py" "${ARGS[@]}"

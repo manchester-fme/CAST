@@ -137,8 +137,8 @@ jobs:
       solver: YOUR_SOLVER
       repo_url: ${{ github.server_url }}/${{ github.repository }}  # this fork -- triage only ever reads manifest.json, never builds source
       solver_dir: YOUR_SOLVER/.cast
-      target_cmd: "YOUR_SOLVER"  # e.g. "z3 model_validate=true" -- see docs/triage.md
-      oracle_cmd: "YOUR_ORACLE"  # e.g. "cvc5 --check-models --check-proofs --strings-exp -q" -- your manifest.json's fuzzer.oracle_solver
+      # target_cmd/oracle_cmd are computed automatically from each solver's
+      # own manifest.json fuzzer.solver_cli - see docs/triage.md.
       # archive/commit_hash forward the top-level inputs (both empty on a
       # schedule tick or a plain action=triage, which auto-discovers the
       # latest of each). commit_hash lets a standalone triage run pin the

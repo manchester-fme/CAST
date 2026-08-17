@@ -47,14 +47,6 @@ on:
         type: string
         required: false
         default: ""
-      target_cmd:
-        description: "Target solver command (must invoke the 'solver' binary above, e.g. 'z3 model_validate=true')"
-        type: string
-        required: true
-      oracle_cmd:
-        description: "Oracle solver command"
-        type: string
-        required: true
       post:
         description: "Actually file GitHub issues (default: dry run, prints drafts only)"
         type: boolean
@@ -88,14 +80,6 @@ on:
         description: "Full commit hash to fetch as the target build, or empty to auto-discover the latest production build"
         type: string
         default: ""
-      target_cmd:
-        description: "Target solver command"
-        type: string
-        default: "z3 model_validate=true"
-      oracle_cmd:
-        description: "Oracle solver command"
-        type: string
-        default: "cvc5 --check-models --check-proofs -q"
       post:
         description: "Actually file GitHub issues (default: dry run, prints drafts only)"
         type: boolean
@@ -183,6 +167,31 @@ jobs:
             echo "::error::Unsupported fuzzer.oracle_fetch_fallback.type: $FALLBACK_TYPE"
             exit 1
           fi
+
+      # target_cmd comes from the target's own manifest.json (already
+      # cloned above); oracle_cmd needs the oracle's own manifest.json, so
+      # shallow-clone its fork too - manchester-fme/<solver> is that fork
+      # by convention for every solver CAST currently tracks, and it now
+      # carries nothing but .cast/ and .github/ (manchester-fme/CAST#74),
+      # so this is trivially cheap. Mirrors commit-fuzzer.yml's identically
+      # reasoned "Clone oracle solver's own fork for its solver_cli" step -
+      # keep these two in sync.
+      - name: Compute target_cmd/oracle_cmd from manifest.json's solver_cli
+        id: solver-cmds
+        run: |
+          SOLVER="${{ inputs.solver }}"
+          SOLVER_DIR="${{ inputs.solver_dir }}"
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          MANIFEST="$SOLVER_DIR/manifest.json"
+          TARGET_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "$MANIFEST")
+          TARGET_CMD="$SOLVER $TARGET_EXTRA_ARGS"
+          echo "target_cmd=${TARGET_CMD% }" >> "$GITHUB_OUTPUT"
+
+          ORACLE_SOLVER="${{ steps.install-oracle.outputs.oracle_solver }}"
+          git clone --depth 1 "https://github.com/manchester-fme/$ORACLE_SOLVER" oracle-cli-manifest
+          ORACLE_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "oracle-cli-manifest/.cast/manifest.json")
+          ORACLE_CMD="$ORACLE_SOLVER $ORACLE_EXTRA_ARGS"
+          echo "oracle_cmd=${ORACLE_CMD% }" >> "$GITHUB_OUTPUT"
 
       - name: Install python deps for storage access
         run: pip install boto3 requests
@@ -352,8 +361,8 @@ jobs:
           CAST_TRIAGE_DEBUG: "1"
         run: |
           python3 src/triage/triage.py "${{ steps.resolve.outputs.archive }}" \
-            --target-cmd "${{ inputs.target_cmd }}" \
-            --oracle-cmd "${{ inputs.oracle_cmd }}" \
+            --target-cmd "${{ steps.solver-cmds.outputs.target_cmd }}" \
+            --oracle-cmd "${{ steps.solver-cmds.outputs.oracle_cmd }}" \
             --out-dir triage_out \
             --repo "${{ inputs.repo || github.repository }}" \
             --commit-hash "${{ steps.resolve.outputs.commit_hash }}" \
