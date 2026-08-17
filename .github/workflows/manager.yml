@@ -43,9 +43,10 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue/fuzzing schedule state)'
-        required: true
+        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to default to this repo''s own name (github.event.repository.name), the convention every fork already follows'
+        required: false
         type: string
+        default: ''
       repo_url:
         description: 'Git URL of the upstream solver repository to monitor'
         required: true
@@ -57,9 +58,10 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (namespaces the build queue/fuzzing schedule state)'
-        required: true
+        description: 'Solver name (namespaces the build queue/fuzzing schedule state); leave empty to default to this repo''s own name (github.event.repository.name), the convention every fork already follows'
+        required: false
         type: string
+        default: ''
       repo_url:
         description: 'Git URL of the upstream solver repository to monitor'
         required: true
@@ -99,7 +101,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           REPO_URL="${{ inputs.repo_url }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")

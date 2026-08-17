@@ -27,9 +27,10 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3')"
+        description: "Solver name (namespaces the S3/R2 lookups, e.g. 'z3'); leave empty to default to this repo's own name (github.event.repository.name)"
         type: string
-        required: true
+        required: false
+        default: ''
       repo_url:
         description: "Git URL to clone the target solver from, to read its manifest.json (fuzzer.oracle_solver / oracle_fetch_fallback)"
         type: string
@@ -82,7 +83,7 @@ jobs:
       # source tree (mirrors triage.yml's identically-named step).
       - name: Clone target solver repo for its manifest.json
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           if [ ! -d "$SOLVER" ]; then
             git clone --depth 1 "${{ inputs.repo_url }}" "$SOLVER"
           fi
@@ -92,9 +93,9 @@ jobs:
       - name: Install oracle solver (same manifest-declared fallback fuzzing/triage use)
         id: install-oracle
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
           ORACLE_SOLVER=$(jq -r '.fuzzer.oracle_solver // empty' "$MANIFEST")
           if [ -z "$ORACLE_SOLVER" ]; then
@@ -132,9 +133,9 @@ jobs:
       - name: Compute target_cmd/oracle_cmd from manifest.json's solver_cli
         id: solver-cmds
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
           TARGET_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "$MANIFEST")
           TARGET_CMD="$SOLVER $TARGET_EXTRA_ARGS"
@@ -156,7 +157,7 @@ jobs:
 
       - name: Fetch the pinned bug archive
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then
             src/util/r2_broker_cli.sh get "$NAMESPACE" "${{ inputs.archive }}" bugs.tar.gz
@@ -166,9 +167,9 @@ jobs:
           mkdir -p bugs_extracted
           tar -xzf bugs.tar.gz -C bugs_extracted
 
-      - name: Fetch the pinned ${{ inputs.solver }} build
+      - name: Fetch the pinned ${{ inputs.solver || github.event.repository.name }} build
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ inputs.commit_hash }}.tar.gz"
           echo "Fetching $KEY"
@@ -189,7 +190,7 @@ jobs:
 
       - name: Print solver versions
         run: |
-          "${{ inputs.solver }}" --version
+          "${{ inputs.solver || github.event.repository.name }}" --version
           "${{ steps.install-oracle.outputs.oracle_solver }}" --version || true
 
       # GH_TOKEN authenticates `gh issue create` inside report.py's --post

@@ -23,9 +23,10 @@ on:
   workflow_call:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: true
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        required: false
         type: string
+        default: ''
       repo_url:
         description: 'Git URL of the upstream solver repository to check'
         required: true
@@ -38,9 +39,10 @@ on:
   workflow_dispatch:
     inputs:
       solver:
-        description: 'Solver name (must have a src/solvers/<solver>/manifest.json)'
-        required: true
+        description: 'Solver name (must have a src/solvers/<solver>/manifest.json, or leave empty to default to this repo''s own name)'
+        required: false
         type: string
+        default: ''
       repo_url:
         description: 'Git URL of the upstream solver repository to check'
         required: true
@@ -70,14 +72,14 @@ jobs:
           ref: main
       - uses: ./.github/actions/clone-solver-source
         with:
-          solver: ${{ inputs.solver }}
+          solver: ${{ inputs.solver || github.event.repository.name }}
           repo_url: ${{ inputs.repo_url }}
 
       - name: Fetch latest and clone manifest-declared extra repos
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
           (cd "$SOLVER" && git fetch origin)
           while IFS= read -r repo; do
@@ -92,9 +94,9 @@ jobs:
 
       - name: Run manifest-declared pre-discovery setup
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
           MANIFEST="$SOLVER_DIR/manifest.json"
           PRE_SETUP=$(jq -r '.coverage.setup_command // empty' "$MANIFEST")
           if [ -n "$PRE_SETUP" ]; then
@@ -112,9 +114,9 @@ jobs:
       - name: Count tests
         id: count-tests
         run: |
-          SOLVER="${{ inputs.solver }}"
+          SOLVER="${{ inputs.solver || github.event.repository.name }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
-          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="src/solvers/$SOLVER"; fi
+          if [ -z "$SOLVER_DIR" ]; then SOLVER_DIR="$SOLVER/.cast"; fi
 
           python3 src/coverage/count_tests.py \
             --solver "$SOLVER" \
@@ -139,7 +141,7 @@ jobs:
         id: check-state
         run: |
           NAMESPACE="${{ github.repository }}"
-          python3 src/coverage/coverage_state.py ${{ inputs.solver }} --namespace "$NAMESPACE" check \
+          python3 src/coverage/coverage_state.py ${{ inputs.solver || github.event.repository.name }} --namespace "$NAMESPACE" check \
             --test-count ${{ steps.count-tests.outputs.test_count }} \
             --output decision.json
 
@@ -160,7 +162,7 @@ jobs:
     if: needs.check-rebuild-needed.outputs.should_rebuild == 'true'
     uses: ./.github/workflows/coverage-mapper.yml
     with:
-      solver: ${{ inputs.solver }}
+      solver: ${{ inputs.solver || github.event.repository.name }}
       repo_url: ${{ inputs.repo_url }}
       commit_hash: ${{ needs.check-rebuild-needed.outputs.commit_hash }}
       test_count: ${{ fromJSON(needs.check-rebuild-needed.outputs.test_count) }}
