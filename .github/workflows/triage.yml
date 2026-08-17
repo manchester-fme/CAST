@@ -186,8 +186,11 @@ jobs:
           TARGET_CMD="$SOLVER $TARGET_EXTRA_ARGS"
           echo "target_cmd=${TARGET_CMD% }" >> "$GITHUB_OUTPUT"
 
+          CAST_ORG=$(jq -r '.cast_org' src/util/defaults.json)
+          echo "cast_org=$CAST_ORG" >> "$GITHUB_OUTPUT"
+
           ORACLE_SOLVER="${{ steps.install-oracle.outputs.oracle_solver }}"
-          git clone --depth 1 "https://github.com/manchester-fme/$ORACLE_SOLVER" oracle-cli-manifest
+          git clone --depth 1 "https://github.com/$CAST_ORG/$ORACLE_SOLVER" oracle-cli-manifest
           ORACLE_EXTRA_ARGS=$(jq -r '.fuzzer.solver_cli // empty' "oracle-cli-manifest/.cast/manifest.json")
           ORACLE_CMD="$ORACLE_SOLVER $ORACLE_EXTRA_ARGS"
           echo "oracle_cmd=${ORACLE_CMD% }" >> "$GITHUB_OUTPUT"
@@ -214,7 +217,7 @@ jobs:
         id: resolve
         env:
           SOLVER: ${{ inputs.solver }}
-          NAMESPACE: manchester-fme/${{ inputs.solver }}
+          NAMESPACE: ${{ steps.solver-cmds.outputs.cast_org }}/${{ inputs.solver }}
           GIVEN_ARCHIVE: ${{ inputs.archive }}
           GIVEN_COMMIT: ${{ inputs.commit_hash }}
         run: |
@@ -310,7 +313,7 @@ jobs:
         if: steps.resolve.outputs.archive_found == 'true'
         run: |
           SOLVER="${{ inputs.solver }}"
-          NAMESPACE="manchester-fme/$SOLVER"
+          NAMESPACE="${{ steps.solver-cmds.outputs.cast_org }}/$SOLVER"
           KEY="$NAMESPACE/solvers/$SOLVER/builds/v2/production/${{ steps.resolve.outputs.commit_hash }}.tar.gz"
           echo "Fetching $KEY"
           if [ "${AWS_STORAGE_PROVIDER:-}" = "r2-broker" ]; then

@@ -709,7 +709,8 @@ jobs:
           # nothing but .cast/ and .github/ (see manchester-fme/CAST#74),
           # so this shallow clone is trivially cheap.
           if [ -n "$ORACLE_SOLVER" ] && [ -z "$ORACLE_SOLVER_DIR" ] && [ ! -d "oracle-cli-manifest" ]; then
-            git clone --depth 1 "https://github.com/manchester-fme/$ORACLE_SOLVER" oracle-cli-manifest
+            CAST_ORG=$(jq -r '.cast_org' src/util/defaults.json)
+            git clone --depth 1 "https://github.com/$CAST_ORG/$ORACLE_SOLVER" oracle-cli-manifest
           fi
 
       - name: Configure storage backend

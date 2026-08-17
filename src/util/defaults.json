@@ -1,4 +1,5 @@
 {
+  "cast_org": "manchester-fme",
   "resources": {
     "max_jobs": 9,
     "cpu_warning": 85.0,

@@ -24,6 +24,8 @@ from pathlib import Path
 
 import dedup
 
+CAST_ORG = json.loads((Path(__file__).resolve().parent.parent / "util" / "defaults.json").read_text())["cast_org"]
+
 ERR_USAGE = 2
 
 SORTS = ["Bool", "Int", "Real", "BitVec", "Array", "String"]
@@ -123,7 +125,7 @@ def build_report(path, target_cmd, oracle_cmd, kind, msg, commit_hash=None):
 
     lines = [f"commit: {commit}", "", "```bash"]
     lines += transcript
-    lines += ["```", "", "---", "Found with [CAST](https://github.com/manchester-fme/CAST)"]
+    lines += ["```", "", "---", f"Found with [CAST](https://github.com/{CAST_ORG}/CAST)"]
 
     return title, "\n".join(lines) + "\n"
 
