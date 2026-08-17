@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: manchester-fme/CAST
-          ref: v0.4.0  # TEMP for staging validation - revert to main before v0.4.0 merges (gate 1 always tests CAST's latest main in production)
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
