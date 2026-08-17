@@ -125,10 +125,11 @@ onboarding more solvers depends on that footprint being trustworthy.
 
 ### v0.4.0 - harden the interfaces
 Close the gaps in CAST's own reliability and config surface that would
-otherwise undermine both the stability clock and the bug-finding
-credibility v0.5.0 starts measuring - fix drift-prone hardcoding, document
-what's actually supported, and stop triage/the manager from cutting
-corners before either becomes a metric that's being watched.
+otherwise undermine both the stability clock (v0.9.0) and the ongoing
+bug-finding credibility toward the 5-bugs/2-solvers bar - fix drift-prone
+hardcoding, document what's actually supported, and stop triage/the
+manager from cutting corners before either becomes a metric that's being
+watched.
 - #76 Hardcoding: solver invocation flags duplicated in three places with
   no sync check
 - #75 Accumulating backlog of manager actions when CAST cycle is running
@@ -138,18 +139,21 @@ corners before either becomes a metric that's being watched.
 - #65 Improve README / setup documentation clarity
 - #71 Clarify and document the set of repos CAST is intended to work with
 
-### v0.5.0 - CAST UI/webpage
+### v0.5.0 - architectural change
 Give CAST a real interface beyond GitHub Actions logs - `workflow_dispatch`
 inputs and Actions run logs replaced by a dedicated view of run status,
-filed bugs, and fuzzing coverage.
-- Rescope #70 from "status dashboard" to the actual UI restructure
-  v1.0.0 needs, then build against that scope
+filed bugs, and fuzzing coverage. #78 is the actual UI restructure v1.0.0
+needs - #70's narrower "status dashboard" no longer counts as this
+release's deliverable, downgraded to a v0.6.0 follow-on once the
+architecture it depends on exists.
+- #78 Architectural change
 
 ### v0.6.0-v0.8.0 - iterate to close the gap
-Whatever's left before the stability clock starts in v0.9.0: continued UI
-iteration, #72 and #69 (both currently `backlog`) if they end up feeding
-the UI's observability needs, and triage continuing to accumulate
-confirmed bugs across solvers toward the 5-bugs/2-solvers bar.
+Whatever's left before the stability clock starts in v0.9.0: #70 (status
+dashboard) built against the v0.5.0 architecture, #72 and #69 (both
+currently `backlog`) if they end up feeding the UI's observability needs,
+and triage continuing to accumulate confirmed bugs across solvers toward
+the 5-bugs/2-solvers bar.
 
 ### v0.9.0 - stability
 Run the unattended production schedule (`manager`'s hourly tick, the
