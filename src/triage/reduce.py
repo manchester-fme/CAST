@@ -65,7 +65,7 @@ def reduce(smt2_path, target_cmd, oracle_cmd, out_dir, creduce_bin, jobs):
     if kind is None:
         print(
             f'error: "{smt2_path.name}" is not named like a dedup.py bug '
-            'trigger (expected an "incorrect-...smt2" or "crash-...smt2" prefix)',
+            'trigger (expected an "incorrect-...smt2", "crash-...smt2" or "segfault-...smt2" prefix)',
             flush=True,
         )
         exit(ERR_USAGE)

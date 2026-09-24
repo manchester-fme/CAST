@@ -3,7 +3,7 @@
 
 Input: a single confirmed bug-triggering .smt2 file (as produced by
 dedup.py / minimized by reduce.py -- named 'incorrect-...smt2' for a
-soundness bug or 'crash-...smt2' for a crash)
+soundness bug or 'crash-...smt2' / 'segfault-...smt2' for a crash)
 Output: a GitHub issue title + body for --repo's issue tracker (default:
 the current directory's git remote)
 
@@ -54,7 +54,7 @@ def confirm(path, target_cmd, oracle_cmd):
     if kind is None:
         error(
             f'"{path.name}" is not named like a dedup.py bug trigger '
-            '(expected an "incorrect-...smt2" or "crash-...smt2" prefix)'
+            '(expected an "incorrect-...smt2", "crash-...smt2" or "segfault-...smt2" prefix)'
         )
     if kind == "soundness":
         if not oracle_cmd:
