@@ -98,6 +98,8 @@ jobs:
       # fallback" body - the exact install path real fuzzing/triage take.
       - name: Install oracle solver (same manifest-declared fallback fuzzing/triage use)
         id: install-oracle
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SOLVER="${{ steps.resolve-solver.outputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
