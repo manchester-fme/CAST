@@ -147,6 +147,8 @@ jobs:
       # fuzzing actually ran against). Keep these two in sync.
       - name: Install oracle solver (same manifest-declared fallback commit-fuzzer.yml uses)
         id: install-oracle
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SOLVER="${{ inputs.solver }}"
           SOLVER_DIR="${{ inputs.solver_dir }}"
