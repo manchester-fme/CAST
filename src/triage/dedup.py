@@ -15,6 +15,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -88,6 +89,16 @@ def solve(cil, file, timeout=5, debug=False):
     return stdout, stderr, returncode
 
 
+# Exit codes yinyang's Fuzzer.py treats as a segfault (-SIGSEGV when the
+# solver is killed by the signal directly, 245 when a wrapper re-raises it
+# as an exit status). A segfault typically prints nothing, so no
+# CRASH_SIGNATURES entry would ever match it -- the exit code is the only
+# evidence, and without checking it every "segfault-..." trigger is
+# silently dropped as not reproducing.
+SEGFAULT_EXIT_CODES = (-signal.SIGSEGV, 245)
+SEGFAULT_NOTE = "Segmentation fault"
+
+
 def strip_own_filename(output, smt2_file):
     """Solvers commonly echo the input file's path back into their own
     error messages (e.g. a parse-error location). Strip it out before
@@ -101,9 +112,16 @@ def strip_own_filename(output, smt2_file):
 
 def run_solver(cil, smt2_file):
     """Wraps solve() with a verdict; verdict is 'sat', 'unsat', 'crash' or 'unknown'."""
-    stdout, stderr, _ = solve(cil, smt2_file)
+    stdout, stderr, returncode = solve(cil, smt2_file)
     output = stdout + stderr
     scan_text = strip_own_filename(output, smt2_file)
+
+    if returncode in SEGFAULT_EXIT_CODES and not any(sig in scan_text for sig in CRASH_SIGNATURES):
+        # what a shell would print for the same run -- gives crash_msg() a
+        # signature to match and the issue transcript something to show
+        note = f"{SEGFAULT_NOTE} (exit code {returncode})"
+        output = f"{output.rstrip()}\n{note}" if output.strip() else note
+        return "crash", output
 
     for sig in CRASH_SIGNATURES:
         if sig in scan_text:
@@ -279,12 +297,14 @@ def get_model_output(cil, formula_text):
 
 
 def classify(path: Path):
-    """Bug triggers are named 'incorrect-...smt2' (soundness) or
-    'crash-...smt2' (crash)"""
+    """Bug triggers are named 'incorrect-...smt2' (soundness), or
+    'crash-...smt2' / 'segfault-...smt2' (crash) -- yinyang reports a
+    segfault under its own prefix, but triage confirms it the same way as
+    any other crash (see SEGFAULT_EXIT_CODES)."""
     name = path.name
     if name.startswith("incorrect-"):
         return "soundness"
-    if name.startswith("crash-"):
+    if name.startswith(("crash-", "segfault-")):
         return "crash"
     return None
 
@@ -451,7 +471,7 @@ def parse_args(argv):
         prog="dedup.py",
         description=(
             "Dedup bug triggers from a yinyang-style archive of "
-            "incorrect-*.smt2 / crash-*.smt2 files."
+            "incorrect-*.smt2 / crash-*.smt2 / segfault-*.smt2 files."
         ),
     )
     parser.add_argument(

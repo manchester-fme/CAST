@@ -10,7 +10,7 @@ Directives are plain SMT-LIB set-info forms, so they pass through
 dedup.ground_formula() untouched and survive from the original query into
 the grounded validation query:
 
-  (set-info :fake-<role>-verdict "sat"|"unsat"|"unknown"|"crash:<msg>")
+  (set-info :fake-<role>-verdict "sat"|"unsat"|"unknown"|"crash:<msg>"|"segfault")
       verdict for the original (ungrounded) query, keyed by role
   (set-info :fake-<role>-check "sat"|"unsat"|"unknown")
       verdict for the grounded validation query, keyed by role
@@ -33,7 +33,9 @@ target_cmd.split(" ")[0] and oracle_cmd.split(" ")[0] -- how dedup.py
 derives each tuple's solver name -- are genuinely distinct, the same way
 "z3 ..." and "cvc5 ..." are.
 """
+import os
 import re
+import signal
 import sys
 from pathlib import Path
 
@@ -64,7 +66,11 @@ def run(role, default="sat", argv=None):
     else:
         verdict = _directive(content, f"fake-{role}-verdict") or default
 
-    if verdict.startswith("crash:"):
+    if verdict == "segfault":
+        # die by a real SIGSEGV with no output, the way a native solver does
+        sys.stdout.flush()
+        os.kill(os.getpid(), signal.SIGSEGV)
+    elif verdict.startswith("crash:"):
         print(verdict[len("crash:"):])
     else:
         print(verdict)

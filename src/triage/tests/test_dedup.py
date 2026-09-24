@@ -64,6 +64,7 @@ class PureFunctionTests(unittest.TestCase):
     def test_classify(self):
         self.assertEqual(dedup.classify(Path("incorrect-foo.smt2")), "soundness")
         self.assertEqual(dedup.classify(Path("crash-foo.smt2")), "crash")
+        self.assertEqual(dedup.classify(Path("segfault-foo.smt2")), "crash")
         self.assertIsNone(dedup.classify(Path("other.smt2")))
 
     def test_crash_msg_known_signature(self):
@@ -276,6 +277,27 @@ class DedupCrashTests(unittest.TestCase):
 
     def test_crash_no_longer_reproduces(self):
         path = write_smt2(self.dir, "crash-b.smt2", [
+            ("fake-target-verdict", "sat"),
+        ])
+        IN, D = dedup.dedup([path], TARGET_CMD, ORACLE_CMD)
+        self.assertEqual(IN, [])
+
+    def test_silent_segfault_confirmed(self):
+        # yinyang names these "segfault-..." and they print nothing -- only
+        # the exit code shows the crash (the bitwuzla issue185 trigger that
+        # was silently dropped on every triage run)
+        path = write_smt2(self.dir, "segfault-bitwuzla-a.smt2", [
+            ("fake-target-verdict", "segfault"),
+        ])
+        verdict, output = dedup.run_solver(TARGET_CMD, path)
+        self.assertEqual(verdict, "crash")
+        self.assertIn("Segmentation fault", output)
+        IN, D = dedup.dedup([path], TARGET_CMD, ORACLE_CMD)
+        self.assertEqual(len(IN), 1)
+        self.assertEqual(IN[0][0][1:3], ("crash", "Segmentation fault"))
+
+    def test_segfault_no_longer_reproduces(self):
+        path = write_smt2(self.dir, "segfault-bitwuzla-b.smt2", [
             ("fake-target-verdict", "sat"),
         ])
         IN, D = dedup.dedup([path], TARGET_CMD, ORACLE_CMD)
