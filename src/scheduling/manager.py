@@ -61,7 +61,7 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
         try:
             print(f"   Fetching page {page}...", end='', flush=True)
             response = requests.get(api_url, headers=headers, params=params)
-            response.raise_for_status()
+            git_host.check_response(response)
             data = response.json()
             if not data:
                 print(" (no more commits)")
@@ -87,10 +87,7 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
                 print(f"   ✅ Reached end of commits (last page had {len(data)} commits)")
                 break
             page += 1
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                print(f"   ⚠️  Repository not found (404), stopping")
-                break
+        except requests.exceptions.RequestException as e:
             print(f"   ❌ HTTP error: {e}", file=sys.stderr)
             raise RuntimeError(f"{host} API error: {e}")
 
@@ -133,7 +130,7 @@ def verify_commit_is_newer(repo_url: str, newer_commit: str, older_commit: str, 
             api_url = git_host.build_commit_url(repo_url, commit_hash)
             
             response = requests.get(api_url, headers=headers, timeout=10)
-            response.raise_for_status()
+            git_host.check_response(response)
             data = response.json()
             
             commit_date_str = git_host.parse_commit_date(host, data, 'committer')
@@ -192,7 +189,7 @@ def check_if_commit_too_old(repo_url: str, commit_hash: str, token: Optional[str
         headers = git_host.build_headers(host, token)
         
         response = requests.get(api_url, headers=headers, timeout=10)
-        response.raise_for_status()
+        git_host.check_response(response)
         data = response.json()
         
         # Get commit date
@@ -406,7 +403,7 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
                 headers = git_host.build_headers(host, token)
                 print(f"   Fetching HEAD commit...", end='', flush=True)
                 response = requests.get(api_url, headers=headers, timeout=10)
-                response.raise_for_status()
+                git_host.check_response(response)
                 head_commit = git_host.parse_commit_list(host, [response.json()])[0]
                 if head_commit:
                     print(f" {head_commit[:8]}")
