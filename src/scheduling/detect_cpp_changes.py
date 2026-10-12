@@ -18,6 +18,11 @@ try:
 except ImportError:
     requests = None
 
+src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, src_dir)
+
+from scheduling import git_host
+
 CPP_EXTENSIONS = {'.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.hh'}
 
 
@@ -45,30 +50,20 @@ def detect_cpp_changes_git(repo_path: str, commit_hash: str) -> tuple[bool, List
         raise RuntimeError(f"Error detecting C++ changes: {e}")
 
 
-def detect_cpp_changes_github_api(repo_url: str, commit_hash: str, token: Optional[str] = None) -> tuple[bool, List[str]]:
+def detect_cpp_changes_api(repo_url: str, commit_hash: str, token: Optional[str] = None) -> tuple[bool, List[str]]:
     if requests is None:
         raise RuntimeError("requests library required. Install with: pip install requests")
     
-    if repo_url.startswith('https://github.com/'):
-        repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
-    elif repo_url.startswith('git@github.com:'):
-        repo_path = repo_url.replace('git@github.com:', '').replace('.git', '')
-    elif '/' in repo_url:
-        repo_path = repo_url.replace('.git', '')
-    else:
-        raise ValueError(f"Invalid repo URL: {repo_url}")
-    
-    api_url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
-    headers = {'Authorization': f'token {token}'} if token else {}
+    host = git_host.detect_host(repo_url)
+    api_url = git_host.build_diff_url(repo_url, commit_hash)
+    headers = git_host.build_headers(host, token)
     
     try:
         response = requests.get(api_url, headers=headers)
         response.raise_for_status()
-        commit_data = response.json()
         
         cpp_files = []
-        for file_info in commit_data.get('files', []):
-            filename = file_info.get('filename', '')
+        for filename in git_host.parse_changed_files(host, response.json()):
             if has_cpp_extension(filename) and filename not in cpp_files:
                 cpp_files.append(filename)
         return len(cpp_files) > 0, cpp_files
@@ -76,23 +71,23 @@ def detect_cpp_changes_github_api(repo_url: str, commit_hash: str, token: Option
         if e.response.status_code == 404:
             raise ValueError(f"Commit not found: {commit_hash}")
         elif e.response.status_code == 403:
-            raise RuntimeError("GitHub API rate limit exceeded. Use GITHUB_TOKEN.")
-        raise RuntimeError(f"GitHub API error: {e}")
+            raise RuntimeError(f"{host} API denied access (403), possibly a rate limit. Use an API token.")
+        raise RuntimeError(f"{host} API error: {e}")
     except Exception as e:
         raise RuntimeError(f"Error: {e}")
 
 
 def detect_cpp_changes(repo_path_or_url: str, commit_hash: str, token: Optional[str] = None) -> tuple[bool, List[str]]:
-    if 'github.com' in repo_path_or_url:
-        return detect_cpp_changes_github_api(repo_path_or_url, commit_hash, token)
+    if '://' in repo_path_or_url or repo_path_or_url.startswith('git@'):
+        return detect_cpp_changes_api(repo_path_or_url, commit_hash, token)
     return detect_cpp_changes_git(repo_path_or_url, commit_hash)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Detect C++ changes in a commit')
-    parser.add_argument('repo', help='Repository path or GitHub URL')
+    parser.add_argument('repo', help='Local repository path, or a GitHub or GitLab URL')
     parser.add_argument('commit', help='Commit hash')
-    parser.add_argument('--token', help='GitHub token', default=os.getenv('GITHUB_TOKEN'))
+    parser.add_argument('--token', help='API token for the git host', default=os.getenv('GITHUB_TOKEN'))
     parser.add_argument('--list-files', action='store_true', help='List changed C++ files')
     
     args = parser.parse_args()
