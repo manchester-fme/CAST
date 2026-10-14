@@ -24,7 +24,7 @@ except ImportError:
     boto3 = None
 
 
-def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> Tuple[List[str], bool]:
+def get_commits_from_git_host(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> Tuple[List[str], bool]:
     """Get commits from the repository's host (GitHub or GitLab).
 
     Args:
