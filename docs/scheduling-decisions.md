@@ -115,7 +115,7 @@
 
 ### Manager Workflow
 1. Check `last_checked_commit` from `state.json`
-2. Fetch commits from GitHub (from `last_checked_commit` to HEAD, today only)
+2. Fetch commits from git host (GitHub/GitLab) (from `last_checked_commit` to HEAD, today only)
 3. For each commit: detect C++ changes → add to build queue if found
 4. Check `built` array: verify binaries exist → move to fuzzing schedule → remove from `built`
 5. Clean up fuzzing schedule: remove commits with missing binaries
