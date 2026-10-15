@@ -257,7 +257,7 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
     
     try:
         print(f"\n📡 Fetching commits from {git_host.detect_host(repo_url)}...")
-        commits, found_since_commit = get_commits_from_github(repo_url, last_checked, token, max_commits=max_commits)
+        commits, found_since_commit = get_commits_from_git_host(repo_url, last_checked, token, max_commits=max_commits)
     except Exception as e:
         print(f"\n❌ FATAL: Error getting commits: {e}", file=sys.stderr)
         import traceback
