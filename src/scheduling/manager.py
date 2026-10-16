@@ -11,6 +11,7 @@ sys.path.insert(0, src_dir)
 
 from scheduling.s3_state import get_state_manager, S3StateError, DEFAULT_STATE_VERSION
 from scheduling.detect_cpp_changes import detect_cpp_changes
+from scheduling import git_host
 
 try:
     import requests
@@ -23,13 +24,13 @@ except ImportError:
     boto3 = None
 
 
-def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> Tuple[List[str], bool]:
-    """Get commits from GitHub.
+def get_commits_from_git_host(repo_url: str, since_commit: Optional[str] = None, token: Optional[str] = None, max_commits: Optional[int] = None) -> Tuple[List[str], bool]:
+    """Get commits from the repository's host (GitHub or GitLab).
 
     Args:
         repo_url: Repository URL
         since_commit: Only fetch commits after this commit (None = start from beginning)
-        token: GitHub token
+        token: API token for the host (optional for public repositories)
         max_commits: Maximum number of commits to fetch (None = unlimited, used when starting fresh)
 
     Returns:
@@ -43,12 +44,13 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
     if requests is None:
         raise RuntimeError("requests library required")
 
-    repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
-    api_url = f"https://api.github.com/repos/{repo_path}/commits"
-    headers = {'Authorization': f'token {token}'} if token else {}
+    host = git_host.detect_host(repo_url)
+    repo_path = git_host.get_repo_path(repo_url)
+    api_url = git_host.build_commits_url(repo_url)
+    headers = git_host.build_headers(host, token)
     params = {'per_page': 100}
 
-    print(f"📡 Fetching commits from GitHub: {repo_path}")
+    print(f"📡 Fetching commits from {host}: {repo_path}")
     print(f"   Parameters: since_commit={since_commit[:8] if since_commit else 'None'}, max_commits={max_commits}, token={'***' if token else 'None'}")
 
     commits = []
@@ -59,16 +61,14 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
         try:
             print(f"   Fetching page {page}...", end='', flush=True)
             response = requests.get(api_url, headers=headers, params=params)
-            response.raise_for_status()
+            git_host.check_response(response)
             data = response.json()
             if not data:
                 print(" (no more commits)")
                 break
 
             print(f" (got {len(data)} commits)")
-            for commit in data:
-                commit_hash = commit['sha']
-
+            for commit_hash in git_host.parse_commit_list(host, data):
                 # Stop if we've reached the last checked commit (we've seen all new commits)
                 if since_commit and commit_hash == since_commit:
                     print(f"   ✅ Found last_checked commit {since_commit[:8]} on page {page}, stopping fetch")
@@ -87,12 +87,9 @@ def get_commits_from_github(repo_url: str, since_commit: Optional[str] = None, t
                 print(f"   ✅ Reached end of commits (last page had {len(data)} commits)")
                 break
             page += 1
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                print(f"   ⚠️  Repository not found (404), stopping")
-                break
+        except requests.exceptions.RequestException as e:
             print(f"   ❌ HTTP error: {e}", file=sys.stderr)
-            raise RuntimeError(f"GitHub API error: {e}")
+            raise RuntimeError(f"{host} API error: {e}")
 
     print(f"📊 Total commits fetched: {len(commits)}")
     if commits:
@@ -111,7 +108,7 @@ def verify_commit_is_newer(repo_url: str, newer_commit: str, older_commit: str, 
         repo_url: Repository URL
         newer_commit: Commit hash that should be newer
         older_commit: Commit hash that should be older
-        token: GitHub token
+        token: API token for the host (optional for public repositories)
     Returns:
         True if newer_commit is actually newer, False otherwise
     """
@@ -122,21 +119,21 @@ def verify_commit_is_newer(repo_url: str, newer_commit: str, older_commit: str, 
         return True  # Can't verify, assume correct to avoid blocking
     
     try:
-        repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
+        host = git_host.detect_host(repo_url)
+        headers = git_host.build_headers(host, token)
         newer_date = None
         older_date = None
         
         # Get both commit dates
         for commit_hash, commit_type in [(newer_commit, "newer"), (older_commit, "older")]:
             print(f"   Fetching {commit_type} commit {commit_hash[:8]}...", end='', flush=True)
-            api_url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
-            headers = {'Authorization': f'token {token}'} if token else {}
+            api_url = git_host.build_commit_url(repo_url, commit_hash)
             
             response = requests.get(api_url, headers=headers, timeout=10)
-            response.raise_for_status()
+            git_host.check_response(response)
             data = response.json()
             
-            commit_date_str = data.get('commit', {}).get('committer', {}).get('date')
+            commit_date_str = git_host.parse_commit_date(host, data, 'committer')
             if commit_date_str:
                 commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
                 print(f" date={commit_date.isoformat()}")
@@ -175,7 +172,7 @@ def check_if_commit_too_old(repo_url: str, commit_hash: str, token: Optional[str
     Args:
         repo_url: Repository URL
         commit_hash: Commit hash to check
-        token: GitHub token
+        token: API token for the host (optional for public repositories)
         max_age_days: Maximum age in days (default: 30)
     Returns:
         True if commit is too old, False otherwise
@@ -187,16 +184,16 @@ def check_if_commit_too_old(repo_url: str, commit_hash: str, token: Optional[str
         return False  # Can't check, assume not too old
     
     try:
-        repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
-        api_url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
-        headers = {'Authorization': f'token {token}'} if token else {}
+        host = git_host.detect_host(repo_url)
+        api_url = git_host.build_commit_url(repo_url, commit_hash)
+        headers = git_host.build_headers(host, token)
         
         response = requests.get(api_url, headers=headers, timeout=10)
-        response.raise_for_status()
+        git_host.check_response(response)
         data = response.json()
         
         # Get commit date
-        commit_date_str = data.get('commit', {}).get('author', {}).get('date')
+        commit_date_str = git_host.parse_commit_date(host, data, 'author')
         if commit_date_str:
             commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
             age_days = (datetime.now(timezone.utc) - commit_date).days
@@ -259,8 +256,8 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
     print(f"   since_commit: {last_checked[:8] if last_checked else 'None (starting from HEAD)'}")
     
     try:
-        print(f"\n📡 Fetching commits from GitHub...")
-        commits, found_since_commit = get_commits_from_github(repo_url, last_checked, token, max_commits=max_commits)
+        print(f"\n📡 Fetching commits from {git_host.detect_host(repo_url)}...")
+        commits, found_since_commit = get_commits_from_git_host(repo_url, last_checked, token, max_commits=max_commits)
     except Exception as e:
         print(f"\n❌ FATAL: Error getting commits: {e}", file=sys.stderr)
         import traceback
@@ -401,13 +398,13 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
             print(f"\n⚠️  Old commit was reset but no commits found, fetching HEAD to update state")
             try:
                 # Get HEAD commit to update state
-                repo_path = repo_url.replace('https://github.com/', '').replace('.git', '')
-                api_url = f"https://api.github.com/repos/{repo_path}/commits/HEAD"
-                headers = {'Authorization': f'token {token}'} if token else {}
+                host = git_host.detect_host(repo_url)
+                api_url = git_host.build_commit_url(repo_url, 'HEAD')
+                headers = git_host.build_headers(host, token)
                 print(f"   Fetching HEAD commit...", end='', flush=True)
                 response = requests.get(api_url, headers=headers, timeout=10)
-                response.raise_for_status()
-                head_commit = response.json().get('sha')
+                git_host.check_response(response)
+                head_commit = git_host.parse_commit_list(host, [response.json()])[0]
                 if head_commit:
                     print(f" {head_commit[:8]}")
                     print(f"   Updating last_checked_commit to HEAD...", end='', flush=True)
@@ -461,7 +458,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Manager job for fuzzing system')
     parser.add_argument('solver', help='Solver name (any value with a src/solvers/<solver> directory)')
     parser.add_argument('repo_url', help='Repository URL')
-    parser.add_argument('--token', help='GitHub token', default=os.getenv('GITHUB_TOKEN'))
+    parser.add_argument('--token', help='API token for the git host', default=os.getenv('GITHUB_TOKEN'))
     parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
 
     args = parser.parse_args()
