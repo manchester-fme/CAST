@@ -1,4 +1,5 @@
 """Unit tests for git_host.py."""
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -37,14 +38,22 @@ class GitHostTests(unittest.TestCase):
                          'https://gitlab.com/api/v4/projects/owner%2Frepo/repository/commits')
 
     def test_build_headers_github(self):
-        self.assertEqual(git_host.build_headers('github', 'X'), {'Authorization': 'token X'})
+        with mock.patch.dict(os.environ, {'GITLAB_TOKEN': 'Y'}, clear=True):
+            self.assertEqual(git_host.build_headers('github', 'X'), {'Authorization': 'token X'})
 
-    def test_build_headers_gitlab(self):
-        self.assertEqual(git_host.build_headers('gitlab', 'X'), {'PRIVATE-TOKEN': 'X'})
+    def test_build_headers_gitlab_ignores_github_token(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(git_host.build_headers('gitlab', 'X'), {})
+
+    def test_build_headers_gitlab_uses_env_token(self):
+        with mock.patch.dict(os.environ, {'GITLAB_TOKEN': 'Y'}, clear=True):
+            self.assertEqual(git_host.build_headers('gitlab', 'X'), {'PRIVATE-TOKEN': 'Y'})
+            self.assertEqual(git_host.build_headers('gitlab', None), {'PRIVATE-TOKEN': 'Y'})
 
     def test_build_headers_empty_token(self):
-        self.assertEqual(git_host.build_headers('github', ''), {})
-        self.assertEqual(git_host.build_headers('gitlab', ''), {})
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(git_host.build_headers('github', ''), {})
+            self.assertEqual(git_host.build_headers('gitlab', ''), {})
 
     def test_parse_commit_list_github(self):
         self.assertEqual(git_host.parse_commit_list('github', [{'sha': 'a'}, {'sha': 'b'}]), ['a', 'b'])

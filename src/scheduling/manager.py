@@ -458,7 +458,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Manager job for fuzzing system')
     parser.add_argument('solver', help='Solver name (any value with a src/solvers/<solver> directory)')
     parser.add_argument('repo_url', help='Repository URL')
-    parser.add_argument('--token', help='API token for the git host', default=os.getenv('GITHUB_TOKEN'))
+    parser.add_argument('--token', help='GitHub token (GitLab reads GITLAB_TOKEN)', default=os.getenv('GITHUB_TOKEN'))
     parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
 
     args = parser.parse_args()

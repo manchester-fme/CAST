@@ -87,7 +87,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Detect C++ changes in a commit')
     parser.add_argument('repo', help='Local repository path, or a GitHub or GitLab URL')
     parser.add_argument('commit', help='Commit hash')
-    parser.add_argument('--token', help='API token for the git host', default=os.getenv('GITHUB_TOKEN'))
+    parser.add_argument('--token', help='GitHub token (GitLab reads GITLAB_TOKEN)', default=os.getenv('GITHUB_TOKEN'))
     parser.add_argument('--list-files', action='store_true', help='List changed C++ files')
     
     args = parser.parse_args()

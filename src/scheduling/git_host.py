@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host-specific API URLs, auth headers and response parsing for GitHub and GitLab"""
 
+import os
 from typing import List, Optional, Tuple
 from urllib.parse import quote, urlparse
 
@@ -59,9 +60,17 @@ def build_diff_url(repo_url: str, sha: str) -> str:
     return f"{commit_url}/diff?per_page=100"
 
 
+def resolve_token(host: str, cli_token: Optional[str]) -> Optional[str]:
+    """GitHub uses the token passed in & GitLab reads GITLAB_TOKEN."""
+    if host == 'gitlab':
+        return os.environ.get('GITLAB_TOKEN')
+    return cli_token
+
+
 def build_headers(host: str, token: Optional[str]) -> dict:
     if host not in HOSTS.values():
         raise ValueError(f"Unknown host: {host}")
+    token = resolve_token(host, token)
     if not token:
         return {}
     if host == 'github':
