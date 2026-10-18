@@ -1,7 +1,7 @@
 name: CI
 
-# Basic sanity checks for CAST's own code - no test suite exists yet
-# outside of src/triage (see the test-triage job below), so this catches
+# Basic sanity checks for CAST's own code - test suites exist only for
+# src/triage and src/scheduling (see the jobs below), so this catches
 # the class of mistakes that would otherwise only surface at actual
 # workflow-run time: invalid workflow/JSON syntax, Python that doesn't
 # even parse, shell scripts with a syntax error.
@@ -104,3 +104,16 @@ jobs:
 
       - name: Run src/triage's test suite
         run: python3 -m unittest discover -s src/triage/tests -v
+
+  test-scheduling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run src/scheduling's test suite
+        run: python3 -m unittest discover -s src/scheduling/tests -v
