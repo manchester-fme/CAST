@@ -133,7 +133,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: main
+          ref: dev-iprover
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -199,7 +199,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: main
+          ref: dev-iprover
       - name: Clean stale checkout
         run: rm -rf "${{ inputs.solver }}"
       - uses: ./.github/actions/clone-solver-source
@@ -315,7 +315,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: main
+          ref: dev-iprover
       - name: Install LLVM/Clang 17
         uses: KyleMayes/install-llvm-action@v2
         with:
@@ -451,7 +451,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: main
+          ref: dev-iprover
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -492,7 +492,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: manchester-fme/CAST
-          ref: main
+          ref: dev-iprover
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
