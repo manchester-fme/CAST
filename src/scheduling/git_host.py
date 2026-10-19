@@ -2,11 +2,13 @@
 """Host-specific API URLs, auth headers and response parsing for GitHub and GitLab"""
 
 import os
-from typing import List, Optional, Tuple
+import re
+from typing import Iterable, List, Optional, Set, Tuple
 from urllib.parse import quote, urlparse
 
 HOSTS = {'github.com': 'github', 'gitlab.com': 'gitlab'}
 GITLAB_DATE_FIELDS = {'author': 'authored_date', 'committer': 'committed_date'}
+EXTENSION_PATTERN = re.compile(r'\.[a-z0-9_+-]+')
 
 
 def _split_repo_url(repo_url: str) -> Tuple[str, str]:
@@ -102,6 +104,31 @@ def parse_changed_files(host: str, response_json) -> List[str]:
     if host == 'gitlab':
         return [diff.get('new_path', '') for diff in response_json]
     raise ValueError(f"Unknown host: {host}")
+
+
+def normalise_extensions(raw: Optional[str]) -> Optional[Set[str]]:
+    """Parse a comma-separated extension list such as '.ml, MLI'. Returns None when raw is empty or unset (caller will use default) 
+    raises ValueError on malformed input."""
+    if raw is None or not raw.strip():
+        return None
+    extensions = set()
+    for part in raw.split(','):
+        ext = part.strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith('.'):
+            ext = '.' + ext
+        if not EXTENSION_PATTERN.fullmatch(ext):
+            raise ValueError(f"Invalid source extension '{part.strip()}' in '{raw}' "
+                             f"(expected a comma-separated list such as '.ml,.mli')")
+        extensions.add(ext)
+    if not extensions:
+        raise ValueError(f"No source extensions found in '{raw}' (expected a list such as '.ml,.mli')")
+    return extensions
+
+
+def matches_extension(filename: str, extensions: Iterable[str]) -> bool:
+    return filename.lower().endswith(tuple(extensions))
 
 
 def check_response(response) -> None:

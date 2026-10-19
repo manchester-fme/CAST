@@ -2,7 +2,7 @@ name: Manager
 
 # Reusable, solver-agnostic commit manager workflow.
 #
-# Checks the upstream solver repo for new commits, filters them for C++
+# Checks the upstream solver repo for new commits, filters them for source
 # changes, and updates the shared S3 build-queue/fuzzing-schedule state for a
 # given solver (or, given a manual commit_hash, validates and enqueues just
 # that commit). It generalizes the logic duplicated between cvc5-manager.yml
@@ -54,6 +54,11 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
+      source_extensions:
+        description: "Comma-separated file extensions that count as source changes, default C++"
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       solver:
@@ -68,6 +73,11 @@ on:
         description: 'Optional: commit hash to add to build queue (skips the scheduled scan)'
         required: false
         type: string
+      source_extensions:
+        description: "Comma-separated file extensions that count as source changes, default C++"
+        required: false
+        type: string
+        default: ''
 
 jobs:
   manager:
@@ -101,23 +111,28 @@ jobs:
       - name: Run manager
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_EXTENSIONS: ${{ inputs.source_extensions }}
         run: |
           SOLVER="${{ inputs.solver }}"
           REPO_URL="${{ inputs.repo_url }}"
           NAMESPACE="${{ github.repository }}"
           NAMESPACE_ARGS=(--namespace "$NAMESPACE")
+          EXT_ARGS=()
+          if [ -n "$SOURCE_EXTENSIONS" ]; then
+            EXT_ARGS=(--extensions "$SOURCE_EXTENSIONS")
+          fi
           if [ -n "${{ inputs.commit_hash }}" ]; then
-            # Manual trigger: check for C++ changes before adding to build queue
+            # Manual trigger: check for source changes before adding to build queue
             COMMIT_HASH="${{ inputs.commit_hash }}"
-            if python3 src/scheduling/detect_cpp_changes.py "$REPO_URL" "$COMMIT_HASH" --token $GITHUB_TOKEN; then
-              echo "✅ Commit $COMMIT_HASH has C++ changes, adding to build queue and fuzzing schedule"
+            if python3 src/scheduling/detect_source_changes.py "$REPO_URL" "$COMMIT_HASH" --token $GITHUB_TOKEN "${EXT_ARGS[@]}"; then
+              echo "✅ Commit $COMMIT_HASH has source changes, adding to build queue and fuzzing schedule"
               python3 src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" build-queue add "$COMMIT_HASH"
               python3 src/scheduling/s3_state.py "$SOLVER" "${NAMESPACE_ARGS[@]}" fuzzing-schedule add "$COMMIT_HASH"
             else
-              echo "❌ Commit $COMMIT_HASH has no C++ changes, skipping"
+              echo "❌ Commit $COMMIT_HASH has no source changes, skipping"
               exit 1
             fi
           else
             # Scheduled run: check commits and update queues
-            python3 src/scheduling/manager.py "$SOLVER" "$REPO_URL" --token $GITHUB_TOKEN "${NAMESPACE_ARGS[@]}"
+            python3 src/scheduling/manager.py "$SOLVER" "$REPO_URL" --token $GITHUB_TOKEN "${NAMESPACE_ARGS[@]}" "${EXT_ARGS[@]}"
           fi

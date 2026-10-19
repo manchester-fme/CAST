@@ -4,7 +4,7 @@
 
 **Manager-Builder-Fuzzer** architecture with S3-based state management.
 
-- **Manager**: Checks commits, detects C++ changes, manages queues
+- **Manager**: Checks commits, detects source changes, manages queues
 - **Builder**: Builds commits from queue, uploads binaries
 - **Fuzzer**: Selects commits from schedule, runs fuzzing
 
@@ -69,7 +69,7 @@
 ## Queue Management
 
 ### Build Queue Flow
-1. Manager detects C++ changes → adds to `queue` array (FIFO)
+1. Manager detects source changes → adds to `queue` array (FIFO)
 2. Builder picks first commit from `queue` → builds both binaries
 3. After successful build: moved from `queue` to `built` array
 4. After failed build: moved from `queue` to `failed` array
@@ -101,7 +101,7 @@
 
 **Only Today's Commits**: Manager checks from `last_checked_commit` to HEAD (today only)
 
-**C++ Detection**: Files with extensions `.cpp`, `.cc`, `.cxx`, `.c`, `.h`, `.hpp`, `.hxx`, `.hh`
+**Source Detection**: By default, files with extensions `.cpp`, `.cc`, `.cxx`, `.c`, `.h`, `.hpp`, `.hxx`, `.hh`. Override with the manager's `source_extensions` input
 
 **Rationale**: Reduces API calls, focuses on recent changes, frequent manager runs catch all commits
 
@@ -116,7 +116,7 @@
 ### Manager Workflow
 1. Check `last_checked_commit` from `state.json`
 2. Fetch commits from the git host (GitHub or GitLab), from `last_checked_commit` to HEAD, today only
-3. For each commit: detect C++ changes → add to build queue if found
+3. For each commit: detect source changes matching `source extensions` (default C++) → add to build queue if found
 4. Check `built` array: verify binaries exist → move to fuzzing schedule → remove from `built`
 5. Clean up fuzzing schedule: remove commits with missing binaries
 6. Manage schedule size: remove oldest fuzzed if adding new and schedule >= 4

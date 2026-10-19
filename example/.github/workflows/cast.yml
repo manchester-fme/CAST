@@ -7,7 +7,7 @@ run-name: >-
   || 'cycle' }}
 
 # manager polls the real upstream repo (repo_url below) hourly for new
-# C++-affecting commits and queues them; every 6h, build picks the next
+# source-affecting commits and queues them; every 6h, build picks the next
 # queued commit, fuzzes it (~5h) using coverage-guided test selection, then
 # triages whatever bugs that run found (~1h) -- one sequential run per tick
 # for build/fuzz/triage, `needs:` chaining them in order within a single
@@ -84,6 +84,7 @@ jobs:
       solver: YOUR_SOLVER
       repo_url: YOUR_UPSTREAM_REPO_URL  # e.g. https://github.com/cvc5/cvc5 -- real upstream, not this fork
       commit_hash: ${{ inputs.commit_hash }}
+      # source_extensions: ".ml,.mli"  # file extensions identify source changes.
     secrets: inherit
 
   build:
@@ -108,7 +109,7 @@ jobs:
       commit_hash: ${{ inputs.commit_hash }}
       # force_run left at its default (false): build only builds what
       # manager queued, so a commit only ever gets built/fuzzed once
-      # manager has confirmed it actually touches C++.
+      # manager has confirmed it actually touches source files.
     secrets: inherit
 
   fuzz:

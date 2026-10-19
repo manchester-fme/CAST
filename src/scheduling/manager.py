@@ -10,7 +10,7 @@ src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, src_dir)
 
 from scheduling.s3_state import get_state_manager, S3StateError, DEFAULT_STATE_VERSION
-from scheduling.detect_cpp_changes import detect_cpp_changes
+from scheduling.detect_source_changes import detect_source_changes
 from scheduling import git_host
 
 try:
@@ -218,11 +218,13 @@ def check_if_commit_too_old(repo_url: str, commit_hash: str, token: Optional[str
     return False
 
 
-def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespace: Optional[str] = None):
+def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespace: Optional[str] = None, extensions: Optional[str] = None):
     print(f"=" * 80)
     print(f"🚀 Starting manager for solver: {solver}")
     print(f"   Repository: {repo_url}")
     print(f"   Token: {'***' if token else 'None'}")
+    source_extensions = git_host.normalise_extensions(extensions)
+    print(f"   Source extensions: {', '.join(sorted(source_extensions)) if source_extensions else 'default (C/C++)'}")
     print(f"=" * 80)
 
     manager = get_state_manager(solver, namespace=namespace)
@@ -284,7 +286,7 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
 
     # Process new commits from GitHub
     if commits:
-        print(f"\n📝 Processing {len(commits)} commit(s) to check for C++ changes...")
+        print(f"\n📝 Processing {len(commits)} commit(s) to check for source changes...")
 
         # CRITICAL VALIDATION: If we had a last_checked commit, verify commits[0] is actually newer
         # This prevents updating to an old commit if something went wrong. Skipped on a state
@@ -299,17 +301,17 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
         elif last_checked and commits[0] == last_checked:
             print(f"   ⚠️  WARNING: commits[0] equals last_checked, this shouldn't happen")
         
-        print(f"\n🔍 Checking commits for C++ changes...")
-        new_commits_with_cpp = []
+        print(f"\n🔍 Checking commits for source changes...")
+        new_commits_with_source = []
         for idx, commit in enumerate(commits, 1):
             print(f"   [{idx}/{len(commits)}] Checking {commit[:8]}...", end='', flush=True)
             try:
-                has_cpp, changed_files = detect_cpp_changes(repo_url, commit, token)
-                if has_cpp:
-                    print(f" ✅ C++ changes ({len(changed_files)} files)")
-                    new_commits_with_cpp.append(commit)
+                has_source, changed_files = detect_source_changes(repo_url, commit, token, source_extensions)
+                if has_source:
+                    print(f" ✅ Source changes ({len(changed_files)} files)")
+                    new_commits_with_source.append(commit)
                 else:
-                    print(f" ⏭️  No C++ changes")
+                    print(f" ⏭️  No source changes")
             except Exception as e:
                 processing_errors += 1
                 print(f" ❌ ERROR: {e}", file=sys.stderr)
@@ -322,23 +324,23 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
                     sys.exit(1)
                 continue
         
-        print(f"\n📊 Summary: Found {len(new_commits_with_cpp)} commit(s) with C++ changes out of {len(commits)} total")
+        print(f"\n📊 Summary: Found {len(new_commits_with_source)} commit(s) with source changes out of {len(commits)} total")
         
         # When starting fresh (no last_checked, or last_checked didn't match this repo_url's
-        # history), limit to last 4 commits with C++ changes.
+        # history), limit to last 4 commits with source changes.
         # Note: commits come from GitHub API in reverse chronological order (newest first)
-        # So [:4] gets the 4 newest commits with C++ changes
-        if (not last_checked or state_mismatch) and new_commits_with_cpp:
-            if len(new_commits_with_cpp) > 4:
-                print(f"\n📋 Starting fresh: limiting to last 4 commits with C++ changes (found {len(new_commits_with_cpp)})")
-                print(f"   Keeping: {', '.join([c[:8] for c in new_commits_with_cpp[:4]])}")
-                new_commits_with_cpp = new_commits_with_cpp[:4]  # Keep first 4 (newest)
+        # So [:4] gets the 4 newest commits with source changes
+        if (not last_checked or state_mismatch) and new_commits_with_source:
+            if len(new_commits_with_source) > 4:
+                print(f"\n📋 Starting fresh: limiting to last 4 commits with source changes (found {len(new_commits_with_source)})")
+                print(f"   Keeping: {', '.join([c[:8] for c in new_commits_with_source[:4]])}")
+                new_commits_with_source = new_commits_with_source[:4]  # Keep first 4 (newest)
         
-        if new_commits_with_cpp:
+        if new_commits_with_source:
             print(f"\n📦 Adding commits to queues...")
             # Add ONLY the latest commit to build queue
             # Commits are in reverse chronological order (newest first), so [0] is the latest
-            latest_commit = new_commits_with_cpp[0]  # First in list is latest (newest)
+            latest_commit = new_commits_with_source[0]  # First in list is latest (newest)
             print(f"   Adding latest commit {latest_commit[:8]} to build queue...", end='', flush=True)
             try:
                 manager.add_to_build_queue(latest_commit)
@@ -348,9 +350,9 @@ def run_manager(solver: str, repo_url: str, token: Optional[str] = None, namespa
                 import traceback
                 print(f"   Traceback: {traceback.format_exc()}", file=sys.stderr)
             
-            # Add ALL commits with C++ changes directly to fuzzing schedule
-            print(f"   Adding {len(new_commits_with_cpp)} commit(s) to fuzzing schedule...")
-            for commit in new_commits_with_cpp:
+            # Add ALL commits with source changes directly to fuzzing schedule
+            print(f"   Adding {len(new_commits_with_source)} commit(s) to fuzzing schedule...")
+            for commit in new_commits_with_source:
                 print(f"     Adding {commit[:8]}...", end='', flush=True)
                 try:
                     manager.add_to_fuzzing_schedule(commit)
@@ -459,12 +461,13 @@ if __name__ == '__main__':
     parser.add_argument('solver', help='Solver name (any value with a src/solvers/<solver> directory)')
     parser.add_argument('repo_url', help='Repository URL')
     parser.add_argument('--token', help='GitHub token (GitLab reads GITLAB_TOKEN)', default=os.getenv('GITHUB_TOKEN'))
+    parser.add_argument('--extensions', default=None, help="Comma-separated source file extensions, e.g. '.ml,.mli' (default: C++)")
     parser.add_argument('--namespace', default=None, help='Optional namespace to isolate state from production (e.g. for fork builds)')
 
     args = parser.parse_args()
 
     try:
-        run_manager(args.solver, args.repo_url, args.token, namespace=args.namespace)
+        run_manager(args.solver, args.repo_url, args.token, namespace=args.namespace, extensions=args.extensions)
     except S3StateError as e:
         print(f"❌ S3 State Error: {e}", file=sys.stderr)
         sys.exit(1)

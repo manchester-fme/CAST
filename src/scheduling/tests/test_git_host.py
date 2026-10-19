@@ -1,4 +1,5 @@
 """Unit tests for git_host.py."""
+import importlib.util
 import os
 import sys
 import unittest
@@ -78,6 +79,42 @@ class GitHostTests(unittest.TestCase):
             git_host.check_response(response)
         self.assertIn('404', str(ctx.exception))
         self.assertIn('https://example.com/commits', str(ctx.exception))
+
+
+class SourceExtensionTests(unittest.TestCase):
+    def test_unset_or_blank_means_default(self):
+        for raw in (None, '', '   '):
+            self.assertIsNone(git_host.normalise_extensions(raw))
+
+    def test_custom_list_matches_both(self):
+        exts = git_host.normalise_extensions('.ml,.mli')
+        self.assertTrue(git_host.matches_extension('src/a.ml', exts))
+        self.assertTrue(git_host.matches_extension('src/a.mli', exts))
+        self.assertFalse(git_host.matches_extension('src/a.cpp', exts))
+
+    def test_normalises_dot_whitespace_and_case(self):
+        self.assertEqual(git_host.normalise_extensions(' ML , .Mli,, .ml '), {'.ml', '.mli'})
+
+    def test_matching_ignores_filename_case(self):
+        self.assertTrue(git_host.matches_extension('A.ML', {'.ml'}))
+
+    def test_malformed_raises(self):
+        for raw in ('.', '*.ml', 'a/b', '.m l', '..ml', ',,', '.ml;.mli'):
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    git_host.normalise_extensions(raw)
+
+
+@unittest.skipUnless(importlib.util.find_spec('git'), 'GitPython not installed')
+class DefaultExtensionTests(unittest.TestCase):
+    def test_default_matches_c_family_and_ignores_ml(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from scheduling import detect_source_changes
+        self.assertTrue(detect_source_changes.has_source_extension('a.cpp'))
+        self.assertTrue(detect_source_changes.has_source_extension('A.H'))
+        self.assertFalse(detect_source_changes.has_source_extension('a.ml'))
+        self.assertTrue(detect_source_changes.has_source_extension('a.ml', {'.ml'}))
+        self.assertFalse(detect_source_changes.has_source_extension('a.cpp', {'.ml'}))
 
 
 if __name__ == '__main__':
